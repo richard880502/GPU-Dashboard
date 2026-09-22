@@ -1432,9 +1432,7 @@
               {
                 "id": "custom.cellOptions",
                 "value": {
-                  "mode": "lcd",
-                  "type": "gauge",
-                  "valueDisplayMode": "color"
+                  "type": "auto"
                 }
               },
               {
@@ -1645,6 +1643,22 @@
               {
                 "id": "min",
                 "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "%CPU"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "lcd",
+                  "type": "gauge",
+                  "valueDisplayMode": "color"
+                }
               }
             ]
           }
