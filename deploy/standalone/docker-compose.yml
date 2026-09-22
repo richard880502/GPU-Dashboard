@@ -9,7 +9,7 @@
 #   GRAFANA_ADMIN_PASSWORD=<pick one> docker compose up -d
 services:
   prometheus:
-    image: ghcr.io/richard880502/gpu-dashboard/prometheus-dashboard:v1.1.0
+    image: ghcr.io/richard880502/gpu-dashboard/prometheus-dashboard:v1.1.1
     container_name: prometheus
     restart: always
     volumes:
@@ -21,7 +21,7 @@ services:
       - "9090:9090"
 
   grafana:
-    image: ghcr.io/richard880502/gpu-dashboard/grafana-dashboard:v1.1.0
+    image: ghcr.io/richard880502/gpu-dashboard/grafana-dashboard:v1.1.1
     container_name: grafana
     restart: always
     environment:
@@ -38,7 +38,7 @@ services:
       - "13000:3000"
 
   nginx:
-    image: ghcr.io/richard880502/gpu-dashboard/nginx-dashboard:v1.1.0
+    image: ghcr.io/richard880502/gpu-dashboard/nginx-dashboard:v1.1.1
     container_name: nginx
     restart: always
     depends_on:

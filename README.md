@@ -44,17 +44,17 @@ Two ways to get the two custom exporter images running — pick one:
 ### Option A: pull the published images (fastest, no repo checkout needed)
 
 ```bash
-docker pull ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.0.0
-docker pull ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.0.0
+docker pull ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.1.1
+docker pull ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.1.1
 
 docker run -d --name nvitop-exporter --restart=always --gpus all --pid host \
-    -p 5051:5050 ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.0.0 \
+    -p 5051:5050 ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.1.1 \
     --bind-address 0.0.0.0 --port 5050 --hostname wingene-76
 
 docker run -d --name gpu-process-exporter --restart=always --gpus all --pid host \
     -e EXPORTER_HOSTNAME=wingene-76 \
     -v /var/run/docker.sock:/var/run/docker.sock:ro \
-    -p 5052:5052 ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.0.0
+    -p 5052:5052 ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.1.1
 ```
 
 Swap `wingene-76` for the actual hostname of whichever box you're on. Images are
