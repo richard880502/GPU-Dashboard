@@ -23,6 +23,9 @@ scrape_configs:
       - targets: ['192.168.1.80:5051']
         labels:
           server: wingene-80
+      - targets: ['192.168.1.82:5051']
+        labels:
+          server: wingene-82
 
   - job_name: gpu-process-containers
     static_configs:
@@ -41,8 +44,16 @@ scrape_configs:
       - targets: ['192.168.1.80:5052']
         labels:
           server: wingene-80
+      - targets: ['192.168.1.82:5052']
+        labels:
+          server: wingene-82
 
   - job_name: node-exporter
+    # host metrics (CPU%/RAM/disk/temp) don't need 1s resolution like the GPU
+    # jobs do, and forcing it caused node-exporter on a slower/remote box
+    # (wingene-82) to fall behind and hit its own concurrent-request limit,
+    # serving 503s for everything instead of just the collectors that were slow.
+    scrape_interval: 5s
     static_configs:
       - targets: ['192.168.1.76:9100']
         labels:
@@ -59,6 +70,9 @@ scrape_configs:
       - targets: ['192.168.1.80:9100']
         labels:
           hostname: wingene-80
+      - targets: ['192.168.1.82:9100']
+        labels:
+          hostname: wingene-82
 
   - job_name: prometheus
     static_configs:

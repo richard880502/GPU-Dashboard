@@ -1,3 +1,13 @@
+# Dev/live deployment: bind-mounts config from this repo checkout (edit
+# prometheus/prometheus.yml or grafana/provisioning/... and `docker compose
+# restart <service>` -- no rebuild needed). This is what's actually running
+# the monitoring stack.
+#
+# Want to deploy the dashboard on ANOTHER machine without cloning this repo?
+# Use deploy/standalone/docker-compose.yml instead -- same result, but the
+# config is baked into published images, so it's just docker-compose up with
+# one small file. Trade-off: that version needs an image rebuild+push for any
+# config change, this one just needs a file edit + restart.
 services:
   prometheus:
     image: prom/prometheus:latest

@@ -1,0 +1,40 @@
+# Run this on a GPU server you want to add to monitoring -- no git clone
+# needed, just this one file. Swap EXPORTER_HOSTNAME / --hostname below for
+# whatever you want this box to show up as in the dashboard (convention used
+# elsewhere in this project: wingene-<last IP octet>).
+#
+# Usage:
+#   HOSTNAME=wingene-XX docker compose -f exporter-compose.yml up -d
+services:
+  nvitop-exporter:
+    image: ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.0.0
+    container_name: nvitop-exporter
+    restart: always
+    gpus: all
+    pid: host
+    ports:
+      - "5051:5050"
+    command: ["--bind-address", "0.0.0.0", "--port", "5050", "--hostname", "${HOSTNAME:?set HOSTNAME}"]
+
+  gpu-process-exporter:
+    image: ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.0.0
+    container_name: gpu-process-exporter
+    restart: always
+    gpus: all
+    pid: host
+    environment:
+      - EXPORTER_HOSTNAME=${HOSTNAME:?set HOSTNAME}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "5052:5052"
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    restart: always
+    network_mode: host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    command: ["--path.rootfs=/host", "--collector.hwmon"]

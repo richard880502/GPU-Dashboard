@@ -818,7 +818,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_hwmon_temp_celsius{chip=\"platform_coretemp_0\",sensor=\"temp1\"}",
+          "expr": "max by(hostname) (node_thermal_zone_temp{hostname=~\"$hostname\"})",
           "format": "table",
           "instant": true,
           "range": false,

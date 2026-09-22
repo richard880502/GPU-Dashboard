@@ -1,7 +1,7 @@
 # GPU server inventory. Confirmed live via `nvidia-smi -L` during deployment.
 monitoring_server:
-  hostname: wingene-81
-  ip: 192.168.1.81
+  hostname: wingene-76
+  ip: 192.168.1.76
 
 servers:
   - hostname: wingene-76
