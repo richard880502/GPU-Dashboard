@@ -70,7 +70,7 @@
       "gridPos": {
         "x": 0,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "datasource": {
@@ -133,9 +133,9 @@
       "type": "stat",
       "title": "GPUs",
       "gridPos": {
-        "x": 4,
+        "x": 3,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "datasource": {
@@ -194,13 +194,121 @@
       ]
     },
     {
+      "id": 12,
+      "type": "stat",
+      "title": "GPU Occupancy",
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "displayName": "occupied",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "#0ca30c",
+                "value": null
+              },
+              {
+                "color": "#fab219",
+                "value": 70
+              },
+              {
+                "color": "#d03b3b",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #total"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "total"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count(group by(uuid) (process_gpu_memory_MiB{hostname=~\"$hostname\", username=~\"$username\"}))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "occupied",
+          "legendFormat": "__auto",
+          "editorMode": "builder",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count(gpu_memory_total_MiB{hostname=~\"$hostname\"})",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "total",
+          "legendFormat": "__auto",
+          "editorMode": "builder",
+          "exemplar": false
+        }
+      ]
+    },
+    {
       "id": 4,
       "type": "stat",
       "title": "Avg GPU Utilization",
       "gridPos": {
-        "x": 8,
+        "x": 12,
         "y": 1,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "datasource": {
@@ -275,9 +383,9 @@
       "type": "stat",
       "title": "Avg VRAM Used",
       "gridPos": {
-        "x": 16,
+        "x": 18,
         "y": 1,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "datasource": {
