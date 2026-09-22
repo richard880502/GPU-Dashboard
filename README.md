@@ -71,12 +71,29 @@ docker compose up -d
 - Prometheus: `http://192.168.1.81:9090` — check **Status → Targets**, all 5
   `gpu-servers` and all 5 `gpu-process-containers` targets should show `UP`.
 - Grafana: `http://192.168.1.81:13000` (or through nginx on port 80, no login
-  needed — see below) — the **GPU Monitoring / nvitop-dashboard** is provisioned
-  automatically, with `hostname` and `username` template filters built in.
+  needed — see below) — opens straight to **GPU Cluster Overview** (see
+  "Default home dashboard" below). The full official **nvitop-dashboard** is
+  still there too, in the same "GPU Monitoring" folder, for deep-dive metrics
+  (PCIe, NVLink, clocks) the overview doesn't show.
 
 Anonymous viewer access is enabled (internal network, so no login prompt for
 viewing). Admin login is still available at `/login` for editing
 (`admin` / see `.env`).
+
+### Default home dashboard
+
+`docker-compose.yml` sets `GF_DASHBOARDS_DEFAULT_HOME_UID` to the cluster
+overview dashboard's UID, but that alone wasn't enough to make `/` actually
+redirect there — it only registers as a fallback. What actually made it stick
+was setting the **org preference** explicitly (this is what `/api/dashboards/home`
+reads first, and it's what's stored in the `grafana_data` volume). If the
+volume is ever wiped and recreated, redo this one-time call:
+
+```bash
+curl -X PUT -u admin:<password> -H 'Content-Type: application/json' \
+  http://192.168.1.81:13000/api/org/preferences \
+  -d '{"homeDashboardUID": "b3b6ac9b-eb83-4246-95f3-7bdfb0a135a1"}'
+```
 
 ## 3. Firewall (Phase 9 of the plan)
 
