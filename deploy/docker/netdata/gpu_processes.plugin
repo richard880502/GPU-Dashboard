@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""Netdata external plugin (Functions API): shows each GPU process's PID,
+user, VRAM and the Docker container it runs in — a live table, not a chart,
+since "which container is PID X in" isn't a time series.
+
+Protocol: https://learn.netdata.cloud/docs/developer-and-contributor-corner/external-plugins
+Registers one FUNCTION and answers it on demand; also emits a small
+heartbeat chart (active GPU process count) so it behaves like a normal
+collector between calls.
+"""
+import json
+import os
+import pwd
+import re
+import select
+import shlex
+import socket
+import subprocess
+import sys
+import time
+
+FUNCTION_NAME = "gpu-processes"
+CGROUP_ID_RE = re.compile(r"([0-9a-f]{64})")
+DOCKER_SOCK = "/var/run/docker.sock"
+
+
+def sh(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True, check=False).stdout
+
+
+def gpu_uuid_index_map():
+    out = sh(["nvidia-smi", "--query-gpu=uuid,index", "--format=csv,noheader"])
+    mapping = {}
+    for line in out.strip().splitlines():
+        if not line.strip():
+            continue
+        uuid, idx = (p.strip() for p in line.split(","))
+        mapping[uuid] = idx
+    return mapping
+
+
+def gpu_compute_apps():
+    out = sh([
+        "nvidia-smi",
+        "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
+        "--format=csv,noheader,nounits",
+    ])
+    apps = []
+    for line in out.strip().splitlines():
+        if not line.strip():
+            continue
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) != 4:
+            continue
+        apps.append(parts)  # uuid, pid, process_name, used_memory_mib
+    return apps
+
+
+def username_for_pid(pid):
+    try:
+        uid = os.stat(f"/proc/{pid}").st_uid
+    except OSError:
+        return "unknown"
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return str(uid)
+
+
+def docker_get(path, timeout=2.0):
+    """Minimal raw HTTP GET over the Docker unix socket (no docker package)."""
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect(DOCKER_SOCK)
+        req = f"GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        sock.sendall(req.encode())
+        chunks = []
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        raw = b"".join(chunks)
+    finally:
+        sock.close()
+    header, _, body = raw.partition(b"\r\n\r\n")
+    if b" 200 " not in header.split(b"\r\n", 1)[0]:
+        return None
+    # body may be chunked-transfer-encoded; strip chunk size lines if present
+    if b"chunked" in header.lower():
+        text, rest = b"", body
+        while rest:
+            size_line, _, rest = rest.partition(b"\r\n")
+            try:
+                size = int(size_line.strip(), 16)
+            except ValueError:
+                break
+            if size == 0:
+                break
+            text += rest[:size]
+            rest = rest[size:].lstrip(b"\r\n")
+        body = text
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        return None
+
+
+def container_name_for_pid(pid):
+    try:
+        with open(f"/proc/{pid}/cgroup") as f:
+            content = f.read()
+    except OSError:
+        return "host"
+    match = CGROUP_ID_RE.search(content)
+    if not match:
+        return "host"
+    info = docker_get(f"/containers/{match.group(1)}/json")
+    if not info:
+        return "host"
+    return info.get("Name", "/?").lstrip("/")
+
+
+def build_table():
+    uuid2idx = gpu_uuid_index_map()
+    rows = []
+    for uuid, pid, proc_name, mem in gpu_compute_apps():
+        rows.append([
+            uuid2idx.get(uuid, "?"),
+            pid,
+            username_for_pid(pid),
+            container_name_for_pid(pid),
+            proc_name,
+            float(mem) if mem.replace(".", "", 1).isdigit() else 0,
+        ])
+    return {
+        "status": 200,
+        "type": "table",
+        "has_history": False,
+        "help": "GPU processes mapped to their host PID, user and Docker container",
+        "columns": {
+            "gpu": {"index": 0, "name": "GPU", "type": "string", "visible": True, "sort": "ascending"},
+            "pid": {"index": 1, "name": "PID", "type": "string", "unique_key": True, "visible": True},
+            "user": {"index": 2, "name": "User", "type": "string", "visible": True, "filter": "multiselect"},
+            "container": {"index": 3, "name": "Container", "type": "string", "visible": True, "filter": "multiselect"},
+            "process": {"index": 4, "name": "Process", "type": "string", "visible": True, "full_width": True},
+            "vram_mib": {
+                "index": 5, "name": "VRAM", "type": "bar-with-integer", "visible": True,
+                "value_options": {"units": "MiB"}, "sort": "descending",
+            },
+        },
+        "data": rows,
+        "default_sort_column": "vram_mib",
+    }
+
+
+def register(update_every):
+    print(f'FUNCTION "{FUNCTION_NAME}" {max(update_every * 3, 10)} '
+          f'"GPU processes and their Docker container" "top" "any" 100 0')
+    print("CHART gpu_process_exporter.active_processes '' 'Active GPU processes' "
+          "processes gpu_process_exporter gpu_process_exporter.active_processes line 100000 "
+          f"{update_every}")
+    print("DIMENSION count '' absolute 1 1")
+    sys.stdout.flush()
+
+
+def emit_heartbeat(n):
+    print("BEGIN gpu_process_exporter.active_processes")
+    print(f"SET count = {n}")
+    print("END")
+    sys.stdout.flush()
+
+
+def respond(transaction_id):
+    payload = build_table()
+    body = json.dumps(payload)
+    expires = int(time.time()) + 5
+    print(f"FUNCTION_RESULT_BEGIN {transaction_id} 200 application/json {expires}")
+    print(body)
+    print("FUNCTION_RESULT_END")
+    sys.stdout.flush()
+
+
+def main():
+    try:
+        update_every = int(sys.argv[1])
+    except (IndexError, ValueError):
+        update_every = 10
+
+    register(update_every)
+
+    while True:
+        ready, _, _ = select.select([sys.stdin], [], [], update_every)
+        if not ready:
+            emit_heartbeat(len(gpu_compute_apps()))
+            continue
+
+        line = sys.stdin.readline()
+        if not line:
+            break  # netdata closed the pipe, exit
+        line = line.strip()
+        if not line:
+            continue
+
+        if line.startswith("FUNCTION_PAYLOAD "):
+            # drain payload lines; our function takes no payload
+            while True:
+                nxt = sys.stdin.readline()
+                if not nxt or nxt.strip() == "FUNCTION_PAYLOAD_END":
+                    break
+            continue
+
+        if line.startswith("FUNCTION_CANCEL"):
+            continue  # no response required
+
+        if line.startswith("FUNCTION "):
+            try:
+                parts = shlex.split(line[len("FUNCTION "):])
+                transaction_id = parts[0]
+            except (ValueError, IndexError):
+                continue
+            respond(transaction_id)
+
+
+if __name__ == "__main__":
+    main()
