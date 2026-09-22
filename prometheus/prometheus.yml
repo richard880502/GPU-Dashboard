@@ -1,5 +1,12 @@
 global:
   scrape_interval: 1s
+  # explicit and shorter than scrape_interval -- Prometheus's own default
+  # (10s) would otherwise be LONGER than our 1s interval for every job that
+  # doesn't override it, meaning a scrape running even a little long would
+  # still be in flight when the next one fires. Our own exporters are fast
+  # enough that this hasn't visibly bitten them yet, but it's the same latent
+  # bug that saturated node-exporter's concurrency limit on wingene-82.
+  scrape_timeout: 900ms
   evaluation_interval: 15s
 
 rule_files:
@@ -54,6 +61,12 @@ scrape_configs:
     # (wingene-82) to fall behind and hit its own concurrent-request limit,
     # serving 503s for everything instead of just the collectors that were slow.
     scrape_interval: 5s
+    # explicit and shorter than scrape_interval -- without this, Prometheus's
+    # default scrape_timeout (10s) was LONGER than our 5s interval, so a scrape
+    # that took even slightly too long would still be in flight when the next
+    # one fired, stacking up requests exactly the way that saturated
+    # node-exporter's internal concurrency limit.
+    scrape_timeout: 4s
     static_configs:
       - targets: ['192.168.1.76:9100']
         labels:

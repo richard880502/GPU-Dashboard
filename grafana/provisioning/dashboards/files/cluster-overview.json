@@ -1615,6 +1615,38 @@
                 ]
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "GPU MEM %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "gauge",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              }
+            ]
           }
         ]
       },
@@ -1848,7 +1880,7 @@
           "disableTextWrap": false,
           "editorMode": "builder",
           "exemplar": false,
-          "expr": "gpu_memory_total_MiB{hostname!~\"$hostname\"}",
+          "expr": "gpu_memory_total_MiB{hostname=~\"$hostname\"}",
           "format": "table",
           "fullMetaSearch": false,
           "hide": false,
@@ -1877,6 +1909,20 @@
           "range": false,
           "refId": "container",
           "useBackend": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(process_gpu_memory_MiB{hostname=~\"$hostname\", username=~\"$username\"} / on(hostname, index) group_left() gpu_memory_total_MiB{hostname=~\"$hostname\"}) * 100",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "gpu mem pct",
+          "legendFormat": "__auto",
+          "editorMode": "builder",
+          "exemplar": false
         }
       ],
       "title": "GPU Processes",
@@ -2016,6 +2062,12 @@
                   "lastNotNull"
                 ],
                 "operation": "aggregate"
+              },
+              "Value #gpu mem pct": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
               }
             }
           }
@@ -2028,22 +2080,23 @@
             },
             "includeByName": {},
             "indexByName": {
-              "Value #cpu percent (lastNotNull)": 7,
-              "Value #gpu decoder utilization (lastNotNull)": 13,
-              "Value #gpu encoder utilization (lastNotNull)": 12,
-              "Value #gpu memory (lastNotNull)": 9,
-              "Value #gpu memory bandwidth utilization (lastNotNull)": 11,
-              "Value #gpu sm utilization (lastNotNull)": 10,
-              "Value #rss memory (lastNotNull)": 8,
-              "Value #running time (lastNotNull)": 14,
-              "command (lastNotNull)": 15,
               "hostname": 0,
-              "index": 4,
               "pid": 1,
-              "status (lastNotNull)": 6,
               "username": 2,
+              "container_name (lastNotNull)": 3,
+              "index": 4,
               "uuid": 5,
-              "container_name (lastNotNull)": 3
+              "status (lastNotNull)": 6,
+              "Value #cpu percent (lastNotNull)": 7,
+              "Value #rss memory (lastNotNull)": 8,
+              "Value #gpu memory (lastNotNull)": 9,
+              "Value #gpu mem pct (lastNotNull)": 10,
+              "Value #gpu sm utilization (lastNotNull)": 11,
+              "Value #gpu memory bandwidth utilization (lastNotNull)": 12,
+              "Value #gpu encoder utilization (lastNotNull)": 13,
+              "Value #gpu decoder utilization (lastNotNull)": 14,
+              "Value #running time (lastNotNull)": 15,
+              "command (lastNotNull)": 16
             },
             "renameByName": {
               "Value #cpu percent (lastNotNull)": "%CPU",
@@ -2060,7 +2113,8 @@
               "pid": "PID",
               "status (lastNotNull)": "STATUS",
               "username": "USERNAME",
-              "container_name (lastNotNull)": "CONTAINER"
+              "container_name (lastNotNull)": "CONTAINER",
+              "Value #gpu mem pct (lastNotNull)": "GPU MEM %"
             }
           }
         }
