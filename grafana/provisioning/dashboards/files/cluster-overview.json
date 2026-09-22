@@ -588,6 +588,28 @@
                 "value": "left"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "(RX|TX) Mbps"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "Mbits"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              }
+            ]
           }
         ]
       },
@@ -647,6 +669,34 @@
           "legendFormat": "__auto",
           "editorMode": "builder",
           "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by(hostname) (rate(host_net_io_rx_data_MiB{interface!=\"lo\"}[1m])) * 8",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "netrx",
+          "legendFormat": "__auto",
+          "editorMode": "builder",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by(hostname) (rate(host_net_io_tx_data_MiB{interface!=\"lo\"}[1m])) * 8",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "nettx",
+          "legendFormat": "__auto",
+          "editorMode": "builder",
+          "exemplar": false
         }
       ],
       "transformations": [
@@ -685,6 +735,18 @@
                   "lastNotNull"
                 ],
                 "operation": "aggregate"
+              },
+              "Value #netrx": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "Value #nettx": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
               }
             }
           }
@@ -698,14 +760,18 @@
               "Value #cpu (lastNotNull)": 1,
               "Value #ram (lastNotNull)": 2,
               "Value #disk (lastNotNull)": 3,
-              "Value #temp (lastNotNull)": 4
+              "Value #temp (lastNotNull)": 4,
+              "Value #netrx (lastNotNull)": 5,
+              "Value #nettx (lastNotNull)": 6
             },
             "renameByName": {
               "hostname": "SERVER",
               "Value #cpu (lastNotNull)": "CPU %",
               "Value #ram (lastNotNull)": "RAM %",
               "Value #disk (lastNotNull)": "DISK %",
-              "Value #temp (lastNotNull)": "CPU TEMP C"
+              "Value #temp (lastNotNull)": "CPU TEMP C",
+              "Value #netrx (lastNotNull)": "RX Mbps",
+              "Value #nettx (lastNotNull)": "TX Mbps"
             }
           }
         },
