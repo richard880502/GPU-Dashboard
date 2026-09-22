@@ -16,7 +16,8 @@ gpu-monitoring/
 ├── docker-compose.yml          # Prometheus + Grafana + Nginx (monitoring server)
 ├── inventory/servers.yaml      # GPU server list
 ├── prometheus/
-│   ├── prometheus.yml          # scrape config: gpu-servers (5051) + gpu-process-containers (5052)
+│   ├── prometheus.yml          # scrape config: gpu-servers (5051), gpu-process-containers (5052),
+│   │                            # node-exporter (9100)
 │   └── rules/gpu-alerts.yml    # rule definitions, visible in Prometheus UI only
 │                                # (no Alertmanager wired up yet)
 ├── grafana/
@@ -43,21 +44,30 @@ ssh richard@192.168.1.76 '/tmp/deploy/install-exporter.sh wingene-76'
 ```
 
 Repeat for `.77`/`wingene-77`, `.78`/`wingene-78`, `.79`/`wingene-79`,
-`.80`/`wingene-80`. This builds and runs two containers, both
-`--gpus all --pid host --restart=always`:
+`.80`/`wingene-80`. This builds and runs three containers:
 
-- **nvitop-exporter** (`:5051`) — GPU/host metrics (util, VRAM, temp, power, CPU, RAM).
-- **gpu-process-exporter** (`:5052`) — a small custom exporter that maps each
-  GPU-using PID to the Docker container it's running in (via
-  `/proc/<pid>/cgroup` + the Docker API), so the dashboard can answer "whose
-  container is holding this GPU" without SSH-ing in to run `docker ps` by hand.
-  Needs `/var/run/docker.sock` mounted read-only.
+- **nvitop-exporter** (`:5051`, `--gpus all --pid host`) — GPU/host metrics
+  (util, VRAM, temp, power, CPU%, RAM%).
+- **gpu-process-exporter** (`:5052`, `--gpus all --pid host`) — a small custom
+  exporter that maps each GPU-using PID to the Docker container it's running
+  in (via `/proc/<pid>/cgroup` + the Docker API), so the dashboard can answer
+  "whose container is holding this GPU" without SSH-ing in to run `docker ps`
+  by hand. Needs `/var/run/docker.sock` mounted read-only.
+- **node-exporter** (`:9100`, official `prom/node-exporter` image, `--net=host
+  --pid=host`) — nvitop-exporter's host metrics don't include disk usage or
+  CPU temperature (it's a GPU-process tool, not a general host exporter), so
+  this fills that gap: disk usage % (`node_filesystem_avail_bytes` /
+  `node_filesystem_size_bytes` for `mountpoint="/"`) and CPU package
+  temperature (`node_hwmon_temp_celsius`, `--collector.hwmon`, filtered to the
+  sensor labelled `"Package id 0"` — confirmed present via `coretemp` on all 5
+  hosts before deploying).
 
 Verify:
 
 ```bash
 curl http://192.168.1.76:5051/metrics | head
 curl http://192.168.1.76:5052/metrics | head
+curl http://192.168.1.76:9100/metrics | head
 ```
 
 ## 2. On the monitoring server (192.168.1.81)
@@ -97,14 +107,17 @@ curl -X PUT -u admin:<password> -H 'Content-Type: application/json' \
 
 ## 3. Firewall (Phase 9 of the plan)
 
-`nvitop-exporter:5051` and `gpu-process-exporter:5052` should only be reachable
-from the monitoring server, not from general users. On each GPU server:
+`nvitop-exporter:5051`, `gpu-process-exporter:5052`, and `node-exporter:9100`
+should only be reachable from the monitoring server, not from general users.
+On each GPU server:
 
 ```bash
 ufw allow from 192.168.1.81 to any port 5051 proto tcp
 ufw allow from 192.168.1.81 to any port 5052 proto tcp
+ufw allow from 192.168.1.81 to any port 9100 proto tcp
 ufw deny 5051/tcp
 ufw deny 5052/tcp
+ufw deny 9100/tcp
 ```
 
 Not yet applied — none of the 5 GPU boxes grant passwordless sudo to the deploy

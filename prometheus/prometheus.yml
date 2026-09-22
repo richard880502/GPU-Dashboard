@@ -42,6 +42,24 @@ scrape_configs:
         labels:
           server: wingene-80
 
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['192.168.1.76:9100']
+        labels:
+          hostname: wingene-76
+      - targets: ['192.168.1.77:9100']
+        labels:
+          hostname: wingene-77
+      - targets: ['192.168.1.78:9100']
+        labels:
+          hostname: wingene-78
+      - targets: ['192.168.1.79:9100']
+        labels:
+          hostname: wingene-79
+      - targets: ['192.168.1.80:9100']
+        labels:
+          hostname: wingene-80
+
   - job_name: prometheus
     static_configs:
       - targets: ['localhost:9090']

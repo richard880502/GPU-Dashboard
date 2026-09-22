@@ -24,7 +24,10 @@
         "multi": true,
         "name": "hostname",
         "options": [],
-        "query": {"qryType": 1, "query": "label_values(hostname)"},
+        "query": {
+          "qryType": 1,
+          "query": "label_values(hostname)"
+        },
         "refresh": 1,
         "regex": "",
         "type": "query"
@@ -37,7 +40,10 @@
         "multi": true,
         "name": "username",
         "options": [],
-        "query": {"qryType": 1, "query": "label_values(username)"},
+        "query": {
+          "qryType": 1,
+          "query": "label_values(username)"
+        },
         "refresh": 1,
         "regex": "",
         "type": "query"
@@ -74,7 +80,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
-          "decimals": 1,
+          "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -139,7 +145,7 @@
       "fieldConfig": {
         "defaults": {
           "unit": "none",
-          "decimals": 1,
+          "decimals": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -338,12 +344,391 @@
       ]
     },
     {
+      "id": 10,
+      "type": "row",
+      "title": "Server Status",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Server Status",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "minWidth": 80
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "gauge",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#cde2fb",
+                      "value": null
+                    },
+                    {
+                      "color": "#6da7ec",
+                      "value": 25
+                    },
+                    {
+                      "color": "#2a78d6",
+                      "value": 50
+                    },
+                    {
+                      "color": "#184f95",
+                      "value": 75
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "RAM %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "gauge",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#0ca30c",
+                      "value": null
+                    },
+                    {
+                      "color": "#fab219",
+                      "value": 70
+                    },
+                    {
+                      "color": "#d03b3b",
+                      "value": 90
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "DISK %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "gauge",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#0ca30c",
+                      "value": null
+                    },
+                    {
+                      "color": "#fab219",
+                      "value": 80
+                    },
+                    {
+                      "color": "#d03b3b",
+                      "value": 95
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU TEMP C"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "gauge",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#0ca30c",
+                      "value": null
+                    },
+                    {
+                      "color": "#fab219",
+                      "value": 75
+                    },
+                    {
+                      "color": "#d03b3b",
+                      "value": 90
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SERVER"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "left"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "host_cpu_percent_Percentage",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "cpu",
+          "legendFormat": "__auto",
+          "editorMode": "builder",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "host_virtual_memory_percent_Percentage",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "ram",
+          "legendFormat": "__auto",
+          "editorMode": "builder",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"}) * 100",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "disk",
+          "legendFormat": "__auto",
+          "editorMode": "builder",
+          "exemplar": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "node_hwmon_temp_celsius{chip=\"platform_coretemp_0\",sensor=\"temp1\"}",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "temp",
+          "legendFormat": "__auto",
+          "editorMode": "builder",
+          "exemplar": false
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "hostname": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "Value #cpu": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "Value #ram": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "Value #disk": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "Value #temp": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "hostname": 0,
+              "Value #cpu (lastNotNull)": 1,
+              "Value #ram (lastNotNull)": 2,
+              "Value #disk (lastNotNull)": 3,
+              "Value #temp (lastNotNull)": 4
+            },
+            "renameByName": {
+              "hostname": "SERVER",
+              "Value #cpu (lastNotNull)": "CPU %",
+              "Value #ram (lastNotNull)": "RAM %",
+              "Value #disk (lastNotNull)": "DISK %",
+              "Value #temp (lastNotNull)": "CPU TEMP C"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "SERVER"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
       "id": 6,
       "type": "row",
       "title": "GPU Status",
       "gridPos": {
         "x": 0,
-        "y": 5,
+        "y": 14,
         "w": 24,
         "h": 1
       },
@@ -355,7 +740,7 @@
       "title": "GPU Status by Server",
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 15,
         "w": 24,
         "h": 10
       },
@@ -721,7 +1106,7 @@
       "title": "Process -> Container",
       "gridPos": {
         "x": 0,
-        "y": 17,
+        "y": 26,
         "w": 24,
         "h": 1
       },
@@ -914,7 +1299,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 27,
         "w": 24,
         "h": 13
       },
