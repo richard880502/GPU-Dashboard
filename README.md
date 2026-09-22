@@ -25,12 +25,13 @@ gpu-monitoring/
 │       ├── datasources/prometheus.yml
 │       └── dashboards/
 │           ├── dashboards.yml
-│           └── files/nvitop-dashboard.json   # official nvitop dashboard (Grafana ID 22589),
-│                                              # "GPU Processes" table extended with a
-│                                              # CONTAINER column (see below)
+│           └── files/cluster-overview.json   # hand-built dashboard (see "Default home
+│                                              # dashboard" below) — the official
+│                                              # nvitop-dashboard it started from was
+│                                              # later removed, see git history
 ├── nginx/nginx.conf            # reverse proxy -> grafana:3000
 └── deploy/
-    ├── install-exporter.sh     # run on each GPU server — deploys both containers below
+    ├── install-exporter.sh     # run on each GPU server — deploys the containers below
     └── docker/
         ├── nvitop-exporter/Dockerfile
         └── gpu-process-exporter/{Dockerfile,gpu_process_exporter.py}
@@ -38,13 +39,46 @@ gpu-monitoring/
 
 ## 1. On each GPU server (192.168.1.76 / .77 / .78 / .79 / .80)
 
+Two ways to get the two custom exporter images running — pick one:
+
+### Option A: pull the published images (fastest, no repo checkout needed)
+
+```bash
+docker pull ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.0.0
+docker pull ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.0.0
+
+docker run -d --name nvitop-exporter --restart=always --gpus all --pid host \
+    -p 5051:5050 ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.0.0 \
+    --bind-address 0.0.0.0 --port 5050 --hostname wingene-76
+
+docker run -d --name gpu-process-exporter --restart=always --gpus all --pid host \
+    -e EXPORTER_HOSTNAME=wingene-76 \
+    -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    -p 5052:5052 ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.0.0
+```
+
+Swap `wingene-76` for the actual hostname of whichever box you're on. Images are
+public — no `docker login` needed to pull. Only `nvitop-exporter` and
+`gpu-process-exporter` are published; `node-exporter` below is the official
+upstream image, nothing custom to publish.
+
+Verified (2026-09-22): a completely fresh `git clone` of this repo, with no local
+image builds at all — just `docker pull` for these two plus `docker compose up -d`
+for the monitoring stack — reproduced a fully working deployment (16/16 Prometheus
+targets up, dashboard queries returning correct data) on a different checkout path
+than the one that had been manually tweaked all along. The repo doesn't secretly
+depend on some untracked local state.
+
+### Option B: build from source (if you've changed the exporter code)
+
 ```bash
 scp -r deploy richard@192.168.1.76:/tmp/deploy
 ssh richard@192.168.1.76 '/tmp/deploy/install-exporter.sh wingene-76'
 ```
 
-Repeat for `.77`/`wingene-77`, `.78`/`wingene-78`, `.79`/`wingene-79`,
-`.80`/`wingene-80`. This builds and runs three containers:
+Repeat either option for `.77`/`wingene-77`, `.78`/`wingene-78`, `.79`/`wingene-79`,
+`.80`/`wingene-80`. Either way you end up with three containers running
+(`install-exporter.sh` also handles the third one, `node-exporter`, either way):
 
 - **nvitop-exporter** (`:5051`, `--gpus all --pid host`) — GPU/host metrics
   (util, VRAM, temp, power, CPU%, RAM%).
@@ -62,7 +96,7 @@ Repeat for `.77`/`wingene-77`, `.78`/`wingene-78`, `.79`/`wingene-79`,
   sensor labelled `"Package id 0"` — confirmed present via `coretemp` on all 5
   hosts before deploying).
 
-Verify:
+Verify either option worked:
 
 ```bash
 curl http://192.168.1.76:5051/metrics | head
@@ -73,19 +107,36 @@ curl http://192.168.1.76:9100/metrics | head
 ## 2. On the monitoring server (192.168.1.76)
 
 ```bash
-cd gpu-monitoring
+git clone https://github.com/richard880502/gpu-dashboard.git
+cd gpu-dashboard
 cp .env.example .env   # set a real GRAFANA_ADMIN_PASSWORD
 docker compose up -d
 ```
 
+No image building here at all — `prometheus`, `grafana`, and `nginx` are all
+pulled straight from Docker Hub as official images.
+
+Prometheus/Grafana data lives under `./data/prometheus` and `./data/grafana`
+(bind mounts, gitignored) rather than Docker-managed named volumes — makes it
+obvious where the data actually is and easy to `du -sh` or back up directly.
+Since Prometheus runs as uid 65534 and Grafana as uid 472 inside their
+containers (not your own host uid, and you likely don't have root to `chown`
+to those either), the directories need to be world-writable:
+
+```bash
+mkdir -p data/prometheus data/grafana
+chmod 777 data/prometheus data/grafana
+```
+
 - Prometheus: `http://192.168.1.76:9090` — check **Status → Targets**, all 5
-  `gpu-servers` and all 5 `gpu-process-containers` targets should show `UP`.
+  `gpu-servers`, all 5 `gpu-process-containers`, and all 5 `node-exporter`
+  targets should show `UP` (16 total, including Prometheus scraping itself).
 - Grafana: `http://192.168.1.76:13000` (or through nginx on port 80, no login
   needed — see below) — opens straight to **GPU Cluster Overview** (see
-  "Default home dashboard" below). The full official **nvitop-dashboard** is
-  is the only dashboard now — the official nvitop-dashboard it was originally
-  imported from was deleted (2026-09-22, accepted trade-off: lost per-GPU
-  historical trend charts / PCIe / NVLink, everything else was already ported over).
+  "Default home dashboard" below). This is the only dashboard now — the
+  official nvitop-dashboard it was originally imported from was deleted
+  (2026-09-22, accepted trade-off: lost per-GPU historical trend charts / PCIe
+  / NVLink, everything else was already ported over first).
 
 Anonymous viewer access is enabled (internal network, so no login prompt for
 viewing). Admin login is still available at `/login` for editing
@@ -93,14 +144,15 @@ viewing). Admin login is still available at `/login` for editing
 
 ### Default home dashboard
 
-`docker-compose.yml` sets `GF_DASHBOARDS_DEFAULT_HOME_UID`, but that alone isn't
-enough to make `/` actually redirect there — it only registers as a fallback. What
-actually makes it stick is the **org preference** (this is what
-`/api/dashboards/home` reads first, and it's what's stored in the `grafana_data`
-volume). That volume is **node-local** (not on the shared NFS home), so moving the
-stack to a new host or recreating the volume both mean redoing this. The
-dashboard's Grafana UID is auto-generated fresh each time (not pinned in the JSON),
-so look it up first rather than reusing an old one from another instance:
+There's no config-file way to set this — `GF_DASHBOARDS_DEFAULT_HOME_UID` looked
+like the right env var but turned out to only register as a fallback that
+`/api/dashboards/home` doesn't actually consult (confirmed the hard way, so it's
+not set in `docker-compose.yml` at all now). What actually works is the **org
+preference**, set via one API call after the stack is up. It's stored in
+`./data/grafana`, so a fresh clone or a wiped data directory both mean redoing
+this. The dashboard's Grafana UID is auto-generated fresh each time (not pinned
+in the JSON), so look it up first rather than reusing an old one from another
+instance:
 
 ```bash
 UID=$(curl -s http://localhost:13000/api/search | python3 -c \

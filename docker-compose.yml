@@ -6,7 +6,7 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/rules:/etc/prometheus/rules:ro
-      - prometheus_data:/prometheus
+      - ./data/prometheus:/prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=1d
@@ -30,7 +30,7 @@ services:
       # after startup (the UID is auto-generated per instance) -- see
       # "Default home dashboard" in README.md, don't rely on an env var here.
     volumes:
-      - grafana_data:/var/lib/grafana
+      - ./data/grafana:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
@@ -47,7 +47,3 @@ services:
       - grafana
     ports:
       - "80:80"
-
-volumes:
-  prometheus_data:
-  grafana_data:
