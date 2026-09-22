@@ -1,0 +1,141 @@
+# GPU Monitoring
+
+Prometheus + Grafana monitoring for the GPU cluster (`wingene-76` … `wingene-80`,
+`192.168.1.76-80`), built on `nvitop-exporter`, with the monitoring stack itself
+running on `wingene-81` (`192.168.1.81`). Scope follows the MVP in the build plan:
+metrics pipeline + dashboard only — no AlertManager, SSO, or custom frontend yet.
+
+**Status: deployed and live** — all 5 GPU servers and the Prometheus/Grafana/nginx
+stack are running as of this setup. See "Deployment notes" below for what differs
+from the original plan text and why.
+
+## Layout
+
+```
+gpu-monitoring/
+├── docker-compose.yml          # Prometheus + Grafana + Nginx (monitoring server)
+├── inventory/servers.yaml      # GPU server list
+├── prometheus/
+│   ├── prometheus.yml          # scrape config: gpu-servers (5051) + gpu-process-containers (5052)
+│   └── rules/gpu-alerts.yml    # rule definitions, visible in Prometheus UI only
+│                                # (no Alertmanager wired up yet)
+├── grafana/
+│   └── provisioning/
+│       ├── datasources/prometheus.yml
+│       └── dashboards/
+│           ├── dashboards.yml
+│           └── files/nvitop-dashboard.json   # official nvitop dashboard (Grafana ID 22589),
+│                                              # "GPU Processes" table extended with a
+│                                              # CONTAINER column (see below)
+├── nginx/nginx.conf            # reverse proxy -> grafana:3000
+└── deploy/
+    ├── install-exporter.sh     # run on each GPU server — deploys both containers below
+    └── docker/
+        ├── nvitop-exporter/Dockerfile
+        └── gpu-process-exporter/{Dockerfile,gpu_process_exporter.py}
+```
+
+## 1. On each GPU server (192.168.1.76 / .77 / .78 / .79 / .80)
+
+```bash
+scp -r deploy richard@192.168.1.76:/tmp/deploy
+ssh richard@192.168.1.76 '/tmp/deploy/install-exporter.sh wingene-76'
+```
+
+Repeat for `.77`/`wingene-77`, `.78`/`wingene-78`, `.79`/`wingene-79`,
+`.80`/`wingene-80`. This builds and runs two containers, both
+`--gpus all --pid host --restart=always`:
+
+- **nvitop-exporter** (`:5051`) — GPU/host metrics (util, VRAM, temp, power, CPU, RAM).
+- **gpu-process-exporter** (`:5052`) — a small custom exporter that maps each
+  GPU-using PID to the Docker container it's running in (via
+  `/proc/<pid>/cgroup` + the Docker API), so the dashboard can answer "whose
+  container is holding this GPU" without SSH-ing in to run `docker ps` by hand.
+  Needs `/var/run/docker.sock` mounted read-only.
+
+Verify:
+
+```bash
+curl http://192.168.1.76:5051/metrics | head
+curl http://192.168.1.76:5052/metrics | head
+```
+
+## 2. On the monitoring server (192.168.1.81)
+
+```bash
+cd gpu-monitoring
+cp .env.example .env   # set a real GRAFANA_ADMIN_PASSWORD
+docker compose up -d
+```
+
+- Prometheus: `http://192.168.1.81:9090` — check **Status → Targets**, all 5
+  `gpu-servers` and all 5 `gpu-process-containers` targets should show `UP`.
+- Grafana: `http://192.168.1.81:13000` (or through nginx on port 80, no login
+  needed — see below) — the **GPU Monitoring / nvitop-dashboard** is provisioned
+  automatically, with `hostname` and `username` template filters built in.
+
+Anonymous viewer access is enabled (internal network, so no login prompt for
+viewing). Admin login is still available at `/login` for editing
+(`admin` / see `.env`).
+
+## 3. Firewall (Phase 9 of the plan)
+
+`nvitop-exporter:5051` and `gpu-process-exporter:5052` should only be reachable
+from the monitoring server, not from general users. On each GPU server:
+
+```bash
+ufw allow from 192.168.1.81 to any port 5051 proto tcp
+ufw allow from 192.168.1.81 to any port 5052 proto tcp
+ufw deny 5051/tcp
+ufw deny 5052/tcp
+```
+
+Not yet applied — none of the 5 GPU boxes grant passwordless sudo to the deploy
+user, so `ufw` needs to be run interactively with the box's sudo password. Do this
+next.
+
+## Deployment notes (what differs from the original plan text, and why)
+
+- **Exporters run in Docker, not systemd.** None of the 5 GPU servers grant
+  passwordless sudo to the `richard` account, so the systemd-unit approach in the
+  plan doc can't be applied non-interactively. All 5 boxes already have Docker with
+  the NVIDIA runtime working and `richard` in the `docker` group, so exporters run
+  as `--restart=always` containers instead — same effect (auto-start, auto-restart),
+  no root needed.
+- **nvitop-exporter's port is 5051, not 5050.** Port `5050` was already bound by
+  other services: `pretrieval-pgadmin` (pgAdmin4) on `.78`, and an unidentified
+  native process on `.79`. Using `5051` everywhere avoids both conflicts and keeps
+  the scrape config uniform across all 5 hosts.
+- **`hostname` label:** `nvitop-exporter` defaults to labelling metrics with its own
+  container's internal IP (e.g. `172.17.0.5`), not the real machine name — it reads
+  this from a `--hostname` CLI flag, not from the container's actual hostname. Each
+  container is started with `--hostname wingene-XX` explicitly so Grafana's
+  `hostname` filter shows the real box names.
+- **Container attribution (`gpu-process-exporter`) is a custom addition**, not part
+  of `nvitop-exporter` itself. It replicates a PID→container lookup (via
+  `/proc/<pid>/cgroup` + the Docker API) and emits a `gpu_process_container_info`
+  metric with the *exact same* label set nvitop-exporter uses for its own
+  per-process metrics (`hostname, index, pid, username, uuid`) — this is required
+  for Grafana's `merge`/`groupBy` transform on the "GPU Processes" table to fold it
+  into the same row instead of creating a separate orphan row. This included
+  matching nvitop-exporter's own username-resolution fallback (raw UID string when
+  the name isn't in the container's local `/etc/passwd`) so the two exactly agree.
+- **Grafana host port is 13000, not 3000** — changed directly on the monitoring
+  server outside of this repo's sync (kept as-is rather than reverted). nginx on
+  port 80 is unaffected since it talks to the `grafana` container over the internal
+  Docker network on its container port 3000, regardless of the host mapping.
+- **Anonymous Grafana access** (`GF_AUTH_ANONYMOUS_ENABLED=true`, role `Viewer`) —
+  added because this is an internal-only network; admin login still guards actual
+  edits.
+
+## What's deliberately not in this version
+
+Per the plan's own MVP scope: AlertManager routing, OAuth/LDAP/SSO in front of
+Grafana, Kubernetes/service discovery, Triton/vLLM metrics, and a custom frontend.
+The alert *rules* file exists (so thresholds are visible in Prometheus's own UI) but
+nothing is wired to notify anyone yet — add Alertmanager later when you're ready for
+Phase 10.
+
+## Known gaps to fill in
+
+- Firewall rule above — needs interactive sudo on each GPU box.

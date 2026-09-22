@@ -1,0 +1,30 @@
+# GPU server inventory. Confirmed live via `nvidia-smi -L` during deployment.
+monitoring_server:
+  hostname: wingene-81
+  ip: 192.168.1.81
+
+servers:
+  - hostname: wingene-76
+    ip: 192.168.1.76
+    gpu: RTX 4090
+    gpu_count: 1
+
+  - hostname: wingene-77
+    ip: 192.168.1.77
+    gpu: RTX 3090
+    gpu_count: 2
+
+  - hostname: wingene-78
+    ip: 192.168.1.78
+    gpu: RTX 4090
+    gpu_count: 2
+
+  - hostname: wingene-79
+    ip: 192.168.1.79
+    gpu: RTX 4090
+    gpu_count: 2
+
+  - hostname: wingene-80
+    ip: 192.168.1.80
+    gpu: RTX 4090
+    gpu_count: 2
