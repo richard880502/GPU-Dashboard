@@ -718,6 +718,55 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SERVER"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "wingene-76": {
+                        "text": "wingene-76",
+                        "color": "#2a78d6",
+                        "index": 0
+                      },
+                      "wingene-77": {
+                        "text": "wingene-77",
+                        "color": "#eb6834",
+                        "index": 1
+                      },
+                      "wingene-78": {
+                        "text": "wingene-78",
+                        "color": "#1baf7a",
+                        "index": 2
+                      },
+                      "wingene-79": {
+                        "text": "wingene-79",
+                        "color": "#eda100",
+                        "index": 3
+                      },
+                      "wingene-80": {
+                        "text": "wingene-80",
+                        "color": "#e87ba4",
+                        "index": 4
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -1124,6 +1173,55 @@
                 "value": "left"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SERVER"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "wingene-76": {
+                        "text": "wingene-76",
+                        "color": "#2a78d6",
+                        "index": 0
+                      },
+                      "wingene-77": {
+                        "text": "wingene-77",
+                        "color": "#eb6834",
+                        "index": 1
+                      },
+                      "wingene-78": {
+                        "text": "wingene-78",
+                        "color": "#1baf7a",
+                        "index": 2
+                      },
+                      "wingene-79": {
+                        "text": "wingene-79",
+                        "color": "#eda100",
+                        "index": 3
+                      },
+                      "wingene-80": {
+                        "text": "wingene-80",
+                        "color": "#e87ba4",
+                        "index": 4
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -1466,6 +1564,55 @@
               {
                 "id": "custom.align",
                 "value": "left"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "HOSTNAME"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "wingene-76": {
+                        "text": "wingene-76",
+                        "color": "#2a78d6",
+                        "index": 0
+                      },
+                      "wingene-77": {
+                        "text": "wingene-77",
+                        "color": "#eb6834",
+                        "index": 1
+                      },
+                      "wingene-78": {
+                        "text": "wingene-78",
+                        "color": "#1baf7a",
+                        "index": 2
+                      },
+                      "wingene-79": {
+                        "text": "wingene-79",
+                        "color": "#eda100",
+                        "index": 3
+                      },
+                      "wingene-80": {
+                        "text": "wingene-80",
+                        "color": "#e87ba4",
+                        "index": 4
+                      }
+                    }
+                  }
+                ]
               }
             ]
           }
