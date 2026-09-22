@@ -24,10 +24,11 @@ services:
       # admin login is still available at /login for editing.
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-      # land on our own dashboard instead of Grafana's default home screen
-      - GF_DASHBOARDS_DEFAULT_HOME_UID=b3b6ac9b-eb83-4246-95f3-7bdfb0a135a1
       # allow the 1s refresh option (default min is 5s)
       - GF_DASHBOARDS_MIN_REFRESH_INTERVAL=1s
+      # NOTE: setting our dashboard as the home page needs one extra API call
+      # after startup (the UID is auto-generated per instance) -- see
+      # "Default home dashboard" in README.md, don't rely on an env var here.
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

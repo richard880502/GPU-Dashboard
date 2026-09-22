@@ -2,7 +2,7 @@
 
 Prometheus + Grafana monitoring for the GPU cluster (`wingene-76` … `wingene-80`,
 `192.168.1.76-80`), built on `nvitop-exporter`, with the monitoring stack itself
-running on `wingene-81` (`192.168.1.81`). Scope follows the MVP in the build plan:
+running on `wingene-76` (`192.168.1.76`). Scope follows the MVP in the build plan:
 metrics pipeline + dashboard only — no AlertManager, SSO, or custom frontend yet.
 
 **Status: deployed and live** — all 5 GPU servers and the Prometheus/Grafana/nginx
@@ -70,7 +70,7 @@ curl http://192.168.1.76:5052/metrics | head
 curl http://192.168.1.76:9100/metrics | head
 ```
 
-## 2. On the monitoring server (192.168.1.81)
+## 2. On the monitoring server (192.168.1.76)
 
 ```bash
 cd gpu-monitoring
@@ -78,13 +78,14 @@ cp .env.example .env   # set a real GRAFANA_ADMIN_PASSWORD
 docker compose up -d
 ```
 
-- Prometheus: `http://192.168.1.81:9090` — check **Status → Targets**, all 5
+- Prometheus: `http://192.168.1.76:9090` — check **Status → Targets**, all 5
   `gpu-servers` and all 5 `gpu-process-containers` targets should show `UP`.
-- Grafana: `http://192.168.1.81:13000` (or through nginx on port 80, no login
+- Grafana: `http://192.168.1.76:13000` (or through nginx on port 80, no login
   needed — see below) — opens straight to **GPU Cluster Overview** (see
   "Default home dashboard" below). The full official **nvitop-dashboard** is
-  still there too, in the same "GPU Monitoring" folder, for deep-dive metrics
-  (PCIe, NVLink, clocks) the overview doesn't show.
+  is the only dashboard now — the official nvitop-dashboard it was originally
+  imported from was deleted (2026-09-22, accepted trade-off: lost per-GPU
+  historical trend charts / PCIe / NVLink, everything else was already ported over).
 
 Anonymous viewer access is enabled (internal network, so no login prompt for
 viewing). Admin login is still available at `/login` for editing
@@ -92,17 +93,21 @@ viewing). Admin login is still available at `/login` for editing
 
 ### Default home dashboard
 
-`docker-compose.yml` sets `GF_DASHBOARDS_DEFAULT_HOME_UID` to the cluster
-overview dashboard's UID, but that alone wasn't enough to make `/` actually
-redirect there — it only registers as a fallback. What actually made it stick
-was setting the **org preference** explicitly (this is what `/api/dashboards/home`
-reads first, and it's what's stored in the `grafana_data` volume). If the
-volume is ever wiped and recreated, redo this one-time call:
+`docker-compose.yml` sets `GF_DASHBOARDS_DEFAULT_HOME_UID`, but that alone isn't
+enough to make `/` actually redirect there — it only registers as a fallback. What
+actually makes it stick is the **org preference** (this is what
+`/api/dashboards/home` reads first, and it's what's stored in the `grafana_data`
+volume). That volume is **node-local** (not on the shared NFS home), so moving the
+stack to a new host or recreating the volume both mean redoing this. The
+dashboard's Grafana UID is auto-generated fresh each time (not pinned in the JSON),
+so look it up first rather than reusing an old one from another instance:
 
 ```bash
+UID=$(curl -s http://localhost:13000/api/search | python3 -c \
+  "import json,sys; print(json.load(sys.stdin)[-1]['uid'])")
 curl -X PUT -u admin:<password> -H 'Content-Type: application/json' \
-  http://192.168.1.81:13000/api/org/preferences \
-  -d '{"homeDashboardUID": "b3b6ac9b-eb83-4246-95f3-7bdfb0a135a1"}'
+  http://192.168.1.76:13000/api/org/preferences \
+  -d "{\"homeDashboardUID\": \"$UID\"}"
 ```
 
 ## 3. Firewall (Phase 9 of the plan)
@@ -112,9 +117,9 @@ should only be reachable from the monitoring server, not from general users.
 On each GPU server:
 
 ```bash
-ufw allow from 192.168.1.81 to any port 5051 proto tcp
-ufw allow from 192.168.1.81 to any port 5052 proto tcp
-ufw allow from 192.168.1.81 to any port 9100 proto tcp
+ufw allow from 192.168.1.76 to any port 5051 proto tcp
+ufw allow from 192.168.1.76 to any port 5052 proto tcp
+ufw allow from 192.168.1.76 to any port 9100 proto tcp
 ufw deny 5051/tcp
 ufw deny 5052/tcp
 ufw deny 9100/tcp
