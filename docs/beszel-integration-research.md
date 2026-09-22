@@ -121,6 +121,100 @@ Keep Beszel if the team values its compact system view, built-in alerts, contain
 
 Do not migrate fully to Beszel unless the project no longer needs user and container attribution for GPU processes. Rebuilding that feature would mean extending Beszel's agent, transport, persistence, API, and UI; it would duplicate the working Prometheus exporters without improving the existing allocation workflow.
 
+## Pilot log (2026-09-22)
+
+Deployed on all 5 hosts (`wingene-76`..`80`). Two things diverged from the plan
+above worth recording for next time.
+
+### 1. Data directory needs to be world-writable
+
+Same issue as Prometheus/Grafana: the Hub image runs as a container-internal
+uid that doesn't match the host user, and there's no sudo on these boxes to
+`chown` to it. Bind-mounting a fresh directory straight up fails with
+`unable to open database file (14)` and the container crash-loops. Fix:
+
+```bash
+mkdir -p deploy/beszel/data
+chmod 777 deploy/beszel/data
+```
+
+### 2. Account + system registration is fully scriptable via the API — no browser needed
+
+The Hub is a PocketBase app, so this can all be done with `curl`, which is
+more reproducible than the click-through setup the plan above assumed.
+
+**Create the first superuser** (via the CLI, not the API):
+
+```bash
+docker exec beszel /beszel superuser create <email> <password>
+```
+
+**Create a regular `users`-collection account too.** This part isn't
+optional: `systems` records require a `users` relation, and a superuser ID
+doesn't satisfy it (fails with `validation_missing_rel_records`) — you need
+a second, non-superuser account even for a single-operator setup.
+
+```bash
+SU_TOKEN=$(curl -s -X POST http://localhost:18090/api/collections/_superusers/auth-with-password \
+  -H 'Content-Type: application/json' -d '{"identity":"<email>","password":"<password>"}' \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+
+curl -s -X POST http://localhost:18090/api/collections/users/records \
+  -H "Authorization: Bearer $SU_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"email":"<email>","password":"<password>","passwordConfirm":"<password>","role":"admin","verified":true,"name":"<name>"}'
+# -> returns the new user's "id", needed below
+```
+
+**Register each system.** The plan above assumed you need the Hub's public
+key (`GET /api/beszel/getkey`) and a per-agent token (`GET
+/api/beszel/universal-token`) *before* starting the agent — but in practice,
+the WebSocket path using that token kept returning `401` (token comes back
+`"active": false` and nothing found made it active via the API). What
+actually worked: agents already default to also running their own SSH
+server on `:45876` and waiting for the *Hub* to connect *to them* (the
+"Hub-initiated SSH mode" the plan mentions) — you don't need the token/key
+dance at all for this mode. Just start the agent, then create the `systems`
+record pointing at it:
+
+```bash
+USER_TOKEN=$(curl -s -X POST http://localhost:18090/api/collections/users/auth-with-password \
+  -H 'Content-Type: application/json' -d '{"identity":"<email>","password":"<password>"}' \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+
+curl -s -X POST http://localhost:18090/api/collections/systems/records \
+  -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"wingene-76","host":"192.168.1.76","port":"45876","users":["<user id from previous step>"]}'
+```
+
+Status goes `pending` -> `up` within ~10s once the Hub successfully connects.
+
+### 3. Skip the login screen
+
+`AUTO_LOGIN=<email>` on the Hub container auto-authenticates that user for
+every viewer, matching the internal-network/no-login approach already used
+for Grafana. Confirmed: `curl` against a protected endpoint with no auth
+header returns real data once this is set.
+
+### 4. GPU data does come through, including on a first-glance-misleading summary field
+
+The `systems` collection's `info.g` field (looked like it should be "gpu
+count") stayed `0` even with the NVIDIA agent working correctly — don't use
+it as a health check. The actual per-GPU data (name, VRAM used/total,
+utilization, power) is in the `system_stats` collection's `stats.g` object,
+confirmed populated correctly (matched real `nvidia-smi` values). Also
+collected, unprompted: per-core CPU temps, NVMe temp, disk I/O, network I/O,
+load average -- more host detail than our own Grafana dashboard currently
+shows, for zero custom collector code.
+
+### 5. Confirmed the exact gap the plan predicted
+
+Once actually looking at it: Beszel's systems list is per-host, not a
+cluster-wide GPU occupancy view -- there's no equivalent of the Grafana
+overview's "7/9 GPUs busy" or cross-host aggregation. This matches the
+capability table above exactly; it isn't a configuration gap, it's what the
+tool is for. Reinforces the original recommendation: keep it as a
+supplementary host-health view, not a replacement for the Grafana dashboard.
+
 ## Sources reviewed
 
 - [Beszel repository](https://github.com/henrygd/beszel) and source at the `main` revision reviewed on 2026-09-22.
