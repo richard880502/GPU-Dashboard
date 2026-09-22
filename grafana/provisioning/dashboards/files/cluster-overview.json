@@ -14,6 +14,36 @@
     "from": "now-15m",
     "to": "now"
   },
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "definition": "label_values(hostname)",
+        "description": "",
+        "includeAll": true,
+        "multi": true,
+        "name": "hostname",
+        "options": [],
+        "query": {"qryType": 1, "query": "label_values(hostname)"},
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": {},
+        "definition": "label_values(username)",
+        "description": "",
+        "includeAll": true,
+        "multi": true,
+        "name": "username",
+        "options": [],
+        "query": {"qryType": 1, "query": "label_values(username)"},
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
