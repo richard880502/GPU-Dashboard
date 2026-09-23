@@ -5,27 +5,41 @@
 #
 # Usage:
 #   HOSTNAME=wingene-XX docker compose -f exporter-compose.yml up -d
+#
+# For Kubernetes hosts (containers started via k8s aren't visible on the
+# Docker socket under the normal containerd/CRI-O runtime setup): also set
+# CRI_SOCKET_PATH to the node's real containerd CRI socket, e.g.
+#   CRI_SOCKET_PATH=/run/containerd/containerd.sock HOSTNAME=wingene-XX \
+#     docker compose -f exporter-compose.yml up -d
+# gpu-process-exporter then attributes GPU processes it can't find on
+# Docker to their pod/container via crictl instead of falling back to
+# "host". Leave unset on plain-Docker hosts -- harmless no-op.
 services:
   nvitop-exporter:
-    image: ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.1.1
+    image: ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.0.0
     container_name: nvitop-exporter
     restart: always
     gpus: all
     pid: host
+    volumes:
+      - /etc/passwd:/etc/passwd:ro
     ports:
       - "5051:5050"
     command: ["--bind-address", "0.0.0.0", "--port", "5050", "--hostname", "${HOSTNAME:?set HOSTNAME}"]
 
   gpu-process-exporter:
-    image: ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.1.1
+    image: ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.1.0
     container_name: gpu-process-exporter
     restart: always
     gpus: all
     pid: host
     environment:
       - EXPORTER_HOSTNAME=${HOSTNAME:?set HOSTNAME}
+      - CRI_SOCKET_PATH=${CRI_SOCKET_PATH:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/passwd:/etc/passwd:ro
+      - ${CRI_SOCKET_PATH:-/dev/null}:${CRI_SOCKET_PATH:-/dev/null}
     ports:
       - "5052:5052"
 

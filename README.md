@@ -80,7 +80,11 @@ Repeat either option for `.77`/`wingene-77`, `.78`/`wingene-78`, `.79`/`wingene-
   exporter that maps each GPU-using PID to the Docker container it's running
   in (via `/proc/<pid>/cgroup` + the Docker API), so the dashboard can answer
   "whose container is holding this GPU" without SSH-ing in to run `docker ps`
-  by hand. Needs `/var/run/docker.sock` mounted read-only.
+  by hand. Needs `/var/run/docker.sock` mounted read-only. On a Kubernetes
+  node (containerd/CRI-O runtime, so k8s pods aren't visible on the Docker
+  socket at all), also set `CRI_SOCKET_PATH` to attribute those to their
+  pod/container via `crictl` instead of falling back to `"host"` — see
+  `deploy/standalone/exporter-compose.yml`.
 - **node-exporter** (`:9100`, official `prom/node-exporter` image, `--net=host
   --pid=host`) — host metrics nvitop-exporter doesn't cover (disk usage, CPU
   temperature via `--collector.hwmon`).
