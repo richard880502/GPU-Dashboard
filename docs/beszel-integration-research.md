@@ -215,6 +215,144 @@ capability table above exactly; it isn't a configuration gap, it's what the
 tool is for. Reinforces the original recommendation: keep it as a
 supplementary host-health view, not a replacement for the Grafana dashboard.
 
+## Fork: native GPU/container attribution in Beszel itself (2026-09-22/23)
+
+After the pilot confirmed the predicted gap (section 5 above), the decision
+changed from "keep Beszel as a supplementary host-health view" to "close the
+gap by forking Beszel," because the missing capability -- GPU-to-container
+attribution -- is exactly what this project's own `gpu-process-exporter`
+already solves, just not inside Beszel's own (nicer) UI. Rather than
+re-deriving PID->container mapping in Go, the fork reads the two exporters
+that already run on every GPU host (`gpu-process-exporter` :5052,
+`nvitop-exporter` :5051) over their Prometheus text output.
+
+Vendored at `deploy/beszel-fork/` from `github.com/henrygd/beszel` (`.git`
+stripped, committed as plain source). New/changed files, all marked with
+"gpu-monitoring fork addition (not upstream)" comments:
+
+- `agent/gpu_process_container.go` -- the core addition. Joins
+  `gpu-process-exporter`'s PID->container map with `nvitop-exporter`'s
+  per-process memory/utilization, in a single HTTP fetch per exporter (see
+  bug below for why it started as two).
+- `internal/entities/container/container.go` -- `container.Stats` gains
+  `GpuPid` / `GpuMemMiB` / `GpuMemPercent` / `GpuUtilPercent` / `GpuIndex`,
+  so the stock Containers page shows GPU usage per container with no new
+  page.
+- `internal/entities/system/system.go` -- `GPUData` gains `Temperature`
+  (existed internally upstream but was never sent over the wire -- see bug
+  below) and a `Processes []GPUProcess` list (PID, container or `"host"`,
+  memory, utilization, memory %, username) for a per-GPU drill-down.
+- `internal/hub/systems/system.go` -- writes the new container columns to
+  SQLite; `SystemManager`'s poll `interval` lowered from upstream's 60s
+  default to 30s.
+- `internal/migrations/1_add_container_gpu_fields.go`,
+  `2_add_container_gpu_index_field.go` -- add the new `containers` columns
+  via PocketBase's normal `collection.Fields.Add()` API, so this runs as a
+  real migration against the existing pilot database, not just a fresh-DB
+  schema.
+- Frontend: `internal/site/src/components/gpu-cluster-overview.tsx` and
+  `gpu-status-table.tsx` are new home-page cards (cluster-wide GPU summary;
+  per-GPU meters with a click-through Sheet listing that GPU's processes).
+  `containers-table-columns.tsx` gained GPU Mem / GPU Util / PID columns.
+
+### Bugs found and fixed along the way
+
+Each of these was a real, verified root cause (checked against live data,
+never guessed), not a hypothesis:
+
+1. **Container table showed nothing for the new GPU columns.**
+   `containers-table.tsx`'s `pb.collection("containers").getList()` call
+   explicitly whitelists which DB fields to fetch (`fields: "id,name,..."`)
+   and the new columns weren't in that list -- every row silently got
+   `undefined`. Fix: added the new field names to that list.
+
+2. **GPU Mem showed a wildly wrong unit (~19 GB shown as billions).**
+   `formatBytes(mib * 1024 * 1024, false, undefined, true)` -- passing
+   `isMegabytes: true` *and* pre-multiplying by `1024*1024` converted MiB to
+   bytes twice. Fix: pass the raw MiB value and let `isMegabytes: true`
+   handle the one conversion.
+
+3. **GPU Mem % (container-level and later per-process) was 0% for a GPU
+   holding 79% of its memory.** `process_gpu_memory_utilization_Percentage`
+   sounds like "% of GPU memory used" but is actually NVML's per-process
+   *memory-bandwidth* utilization sample -- usually ~0 even for a process
+   sitting on most of a GPU's memory. Fixed by computing the percentage
+   directly (`memMiB / gpu_memory_total_MiB * 100`) instead of trusting that
+   metric, the same lesson as the original Grafana dashboard's identical bug
+   earlier in this project's history.
+
+4. **New home-page card (GPU Cluster Overview) never rendered, silently.**
+   Root cause: PocketBase's JS SDK auto-cancels a request when another
+   request with an *identical signature* (same collection/filter/sort/
+   fields) is in flight -- and the new `GpuStatusTable` component fired the
+   exact same `system_stats` query on the same poll tick, so one request
+   always cancelled the other with no visible error (no `.catch()` on
+   either). Fixed by giving each call its own `requestKey`.
+
+5. **GPU Occupancy showed 9/9 (i.e. meaningless).** The first cut defined
+   "occupied" as "GPU memory used > 0," but idle GPUs always report a small
+   non-zero driver/reserved footprint, so the threshold was never false.
+   Fixed to match the original Grafana panel's real semantics: a GPU counts
+   as occupied only if a real process is attributed to it (via the new
+   `GpuIndex` field on containers, joined against `system_stats`).
+
+6. **GPU temperature and per-process VRAM % came back empty on 4 of 5
+   hosts, present only on the simplest single-GPU host.** Two distinct
+   causes stacked on top of each other:
+   - Beszel's own upstream NVML collector (`agent/gpu_nvml.go`) calls
+     `nvmlDeviceGetTemperature()` without checking its return code, so a
+     failing call silently leaves temperature at 0 -- reproduced on 4 of 5
+     hosts, never on the one with the least GPU load. Verified `nvidia-smi`
+     itself reports temperature correctly on all 5, so fixed by forcing
+     `GPU_COLLECTOR=nvidia-smi` (an existing upstream env var) instead of
+     patching purego/NVML bindings.
+   - Separately, per-process VRAM % depended on a second, independent HTTP
+     fetch of `nvitop-exporter`'s `/metrics` per collection function
+     (`collectContainerGPUStats` *and* `attachGPUProcesses` each fetched it
+     twice), adding up to 4 concurrent scrapes per cycle of an endpoint
+     that's expensive to regenerate (it walks live NVML/psutil process
+     handles) -- on multi-process hosts this pushed some of those requests
+     past the 2s client timeout, silently dropping just that data. Fixed by
+     merging into one `fetchNvitopData()` that does a single GET and parses
+     everything in one pass, and raising the timeout to 5s as a margin.
+
+7. **Process username showed as a raw UID (e.g. `9487`) instead of a real
+   name, even though `nvitop` run directly on the host shows the real
+   name.** Both `nvitop-exporter` and `gpu-process-exporter` resolve
+   usernames via `pwd.getpwuid()` against *their own container's* minimal
+   `/etc/passwd`, which has no entry for application users defined on the
+   host (or in another container's image). Fixed by bind-mounting the
+   host's real `/etc/passwd:/etc/passwd:ro` (read-only) into both exporter
+   containers -- not a code change, a deployment change, applied to all 5
+   hosts.
+
+### Current deployment state (as of 2026-09-23)
+
+- Hub runs only on wingene-76 (`:18090`); agent runs on all 5 GPU hosts.
+- All images are local `:test` builds (`beszel-hub-fork:test`,
+  `beszel-agent-nvidia-fork:test`) built directly on each host from the
+  NFS-shared `deploy/beszel-fork` source -- **not published to any
+  registry yet**. See `deploy/standalone/beszel-hub-compose.yml` and
+  `beszel-agent-compose.yml` for the reproducible run commands (they
+  replace the ad-hoc `docker run` invocations used while iterating).
+- `nvitop-exporter` / `gpu-process-exporter` (the shared exporters, also
+  used by Grafana) got the `/etc/passwd` mount added on all 5 hosts; no
+  other change to those two.
+- Source committed to this branch (`research/beszel-integration`); not yet
+  pushed to `origin` (blocked on this environment lacking a working GitHub
+  credential -- either a token or an authorized SSH key is needed).
+
+### Remaining work before this could be called "production"
+
+- Build/publish pipeline: fold the hub + agent images into
+  `deploy/build-images.sh` and publish versioned, multi-arch images to
+  GHCR, matching how the other 5 project images are published, instead of
+  per-host local builds.
+- Decide an upstream-tracking strategy (this is a real fork now, not just
+  config -- `henrygd/beszel` updates will need to be merged/rebased
+  manually going forward).
+- Push this branch and open a PR against `main` once the above is settled.
+
 ## Sources reviewed
 
 - [Beszel repository](https://github.com/henrygd/beszel) and source at the `main` revision reviewed on 2026-09-22.

@@ -168,7 +168,7 @@ export function GpuStatusTable() {
 			})
 		}
 		load()
-		const interval = setInterval(load, 10_000)
+		const interval = setInterval(load, 30_000) // matches the hub's agent-poll interval
 		return () => {
 			cancelled = true
 			clearInterval(interval)

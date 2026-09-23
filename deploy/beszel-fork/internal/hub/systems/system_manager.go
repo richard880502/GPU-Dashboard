@@ -31,9 +31,12 @@ const (
 	paused  string = "paused"  // System monitoring is paused
 	pending string = "pending" // System is waiting on initial connection result
 
-	// interval is the default update interval in milliseconds (60 seconds)
-	interval int = 60_000
-	// interval int = 10_000 // Debug interval for faster updates
+	// interval is the default update interval in milliseconds (30 seconds --
+	// gpu-monitoring fork: lowered from upstream's 60s default for fresher
+	// GPU/process data; see agent/gpu_process_container.go's fetch-merge fix
+	// and 5s HTTP timeout, which keep the exporter scrapes from timing out
+	// at this cadence)
+	interval int = 30_000
 
 	// sessionTimeout is the maximum time to wait for SSH connections
 	sessionTimeout = 4 * time.Second
