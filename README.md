@@ -95,26 +95,30 @@ curl http://192.168.1.76:9100/metrics | head
 
 ## 2. Beszel (monitoring server + every GPU server)
 
-On the monitoring server (`192.168.1.76`), build and run the hub:
+Images are published to GHCR (`ghcr.io/richard880502/gpu-dashboard/beszel-hub`
+and `beszel-agent-nvidia`, both public, currently `v2.0.0`) — no build step
+needed unless you've changed `deploy/beszel-fork`.
+
+On the monitoring server (`192.168.1.76`), run the hub:
 
 ```bash
-cd deploy/beszel-fork
-bun install --cwd internal/site && bun run --cwd internal/site build
-docker build -f internal/dockerfile_hub -t beszel-hub-fork:test .
-cd ../..
 mkdir -p deploy/beszel/data && chmod 777 deploy/beszel/data
-AUTO_LOGIN_EMAIL=<your email> APP_HOST=192.168.1.76 \
-  docker compose -f deploy/standalone/beszel-hub-compose.yml up -d
+cd deploy/standalone
+cp .env.example .env   # set a real USER_PASSWORD
+docker compose -f beszel-hub-compose.yml up -d
 ```
 
-On every GPU server (including the monitoring server itself), build and run
-the agent:
+The account email (`wingene@internal.local`) and `AUTO_LOGIN` are fixed in
+the compose file — only the password is a secret, kept in the gitignored
+`.env`. The email doesn't need to be real/reachable; PocketBase's own user
+model just requires an email-shaped identity field, and `AUTO_LOGIN` works
+by exact string match against it, not by sending anything. Password only
+matters on first run (creates the account); ignored on later runs.
+
+On every GPU server (including the monitoring server itself), run the agent:
 
 ```bash
-cd deploy/beszel-fork
-docker build -f internal/dockerfile_agent_nvidia -t beszel-agent-nvidia-fork:test .
-cd ../..
-HUB_HOST=192.168.1.76 HUB_SSH_PUBLIC_KEY="<from the hub's Add System dialog>" \
+HUB_SSH_PUBLIC_KEY="<from the hub's Add System dialog>" \
   docker compose -f deploy/standalone/beszel-agent-compose.yml up -d
 ```
 
@@ -123,14 +127,11 @@ optional — Beszel's own NVML collector silently drops GPU temperature on some
 hosts (an ignored NVML return code); `nvidia-smi` was verified reliable on
 every host in this cluster. Don't remove it when redeploying.
 
-Open `http://192.168.1.76:18090` — home page shows a cluster-wide GPU
+Open `http://192.168.1.76:13000` — home page shows a cluster-wide GPU
 summary card, a per-GPU status table (click a row to see what's running on
 that GPU, including plain host processes not in any container), and the
 stock Beszel systems/containers views. `AUTO_LOGIN` skips the login screen
 for the internal network, same approach used for the old Grafana setup.
-
-Both images are currently local `:test` builds, not published to any
-registry — see "Remaining work" in `docs/beszel-integration-research.md`.
 
 ## 3. Firewall
 
@@ -176,6 +177,7 @@ dashboard, Kubernetes/service discovery, Triton/vLLM metrics.
 ## Known gaps to fill in
 
 - Firewall rule above — needs interactive sudo on each GPU box.
-- Beszel hub/agent images aren't published yet (local `:test` builds only).
 - No backup mechanism for the Beszel hub's SQLite database
   (`deploy/beszel/data/`).
+- No arm64 build yet for Beszel's images (needed if wingene-82 joins this
+  stack; the two exporters already support it).

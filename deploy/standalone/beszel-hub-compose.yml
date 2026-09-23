@@ -1,29 +1,35 @@
-# Beszel hub -- gpu-monitoring's own fork (deploy/beszel-fork), pilot stage.
-# Run this on ONE machine only (the same one that runs the main Grafana
-# stack, e.g. the monitoring_server in inventory/servers.yaml). Every GPU
-# server then runs beszel-agent-compose.yml pointed at this hub.
+# Beszel hub -- gpu-monitoring's own fork (deploy/beszel-fork), published to
+# GHCR. Run this on ONE machine only (the monitoring_server in
+# inventory/servers.yaml, currently wingene-76). Every GPU server then runs
+# beszel-agent-compose.yml pointed at this hub.
 #
-# PILOT STATUS: the image below is NOT published to any registry yet --
-# build it locally first from the vendored fork:
+# See docs/beszel-integration-research.md for the full build/deploy log and
+# every bug fixed along the way (GPU_COLLECTOR override, exporter
+# /etc/passwd mount, etc.). To build from source instead of pulling:
 #   cd deploy/beszel-fork
 #   bun install --cwd internal/site && bun run --cwd internal/site build
 #   docker build -f internal/dockerfile_hub -t beszel-hub-fork:test .
-# (see docs/beszel-integration-research.md for the full build/deploy log
-# and every bug fixed along the way -- GPU_COLLECTOR override, exporter
-# /etc/passwd mount, etc.)
 #
-# Usage:
-#   mkdir -p data && chmod 777 data
-#   AUTO_LOGIN_EMAIL=you@example.com APP_HOST=192.168.1.76 docker compose -f beszel-hub-compose.yml up -d
+# Usage (first run -- creates the account named by USER_EMAIL):
+#   mkdir -p ../beszel/data && chmod 777 ../beszel/data
+#   cp .env.example .env   # set a real USER_PASSWORD
+#   docker compose -f beszel-hub-compose.yml up -d
+#
+# On later runs (account already exists), USER_EMAIL/USER_PASSWORD are
+# ignored -- AUTO_LOGIN alone is enough. AUTO_LOGIN doesn't need to be a
+# real, reachable email; it just has to match an existing account's email
+# field exactly (PocketBase's own user model, not a Beszel-specific thing).
 services:
   beszel-hub:
-    image: beszel-hub-fork:test
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.0.0
     container_name: beszel
     restart: unless-stopped
     environment:
-      - AUTO_LOGIN=${AUTO_LOGIN_EMAIL:?set AUTO_LOGIN_EMAIL}
-      - APP_URL=http://${APP_HOST:?set APP_HOST}:18090
+      - AUTO_LOGIN=wingene@internal.local
+      - APP_URL=http://192.168.1.76:13000
+      - USER_EMAIL=wingene@internal.local
+      - USER_PASSWORD=${USER_PASSWORD:?set USER_PASSWORD (copy .env.example to .env first)}
     volumes:
-      - ./data:/beszel_data
+      - ../beszel/data:/beszel_data
     ports:
-      - "18090:8090"
+      - "13000:8090"

@@ -1,9 +1,8 @@
-# Beszel agent -- gpu-monitoring's own fork (deploy/beszel-fork), pilot stage.
-# Run this on every GPU server, pointed at the one host running
+# Beszel agent -- gpu-monitoring's own fork (deploy/beszel-fork), published
+# to GHCR. Run this on every GPU server, pointed at the one host running
 # beszel-hub-compose.yml.
 #
-# PILOT STATUS: the image below is NOT published to any registry yet --
-# build it locally first from the vendored fork:
+# To build from source instead of pulling:
 #   cd deploy/beszel-fork
 #   docker build -f internal/dockerfile_agent_nvidia -t beszel-agent-nvidia-fork:test .
 #
@@ -15,15 +14,15 @@
 #
 # HUB_SSH_PUBLIC_KEY is the public key Beszel's hub generates for itself on
 # first start (readable from the hub container's data dir, or from the
-# "Add system" dialog in the Beszel UI) -- it's public key material, safe
-# to keep in this file once filled in for your own deployment.
+# "Add system" dialog in the Beszel UI) -- it's public key material, safe to
+# commit. Not filled in below because it doesn't exist until the hub has
+# started at least once; fill it in after that (see README.md section 2).
 #
 # Usage:
-#   HUB_HOST=192.168.1.76 HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." \
-#     docker compose -f beszel-agent-compose.yml up -d
+#   HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." docker compose -f beszel-agent-compose.yml up -d
 services:
   beszel-agent:
-    image: beszel-agent-nvidia-fork:test
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.0.0
     container_name: beszel-agent
     restart: unless-stopped
     network_mode: host
@@ -33,7 +32,7 @@ services:
       - beszel_agent_data:/var/lib/beszel-agent
     environment:
       - LISTEN=45876
-      - HUB_URL=http://${HUB_HOST:?set HUB_HOST}:18090
+      - HUB_URL=http://192.168.1.76:13000
       - KEY=${HUB_SSH_PUBLIC_KEY:?set HUB_SSH_PUBLIC_KEY}
       - GPU_COLLECTOR=nvidia-smi
 
