@@ -13,30 +13,40 @@ export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
 }
 
-// gpu-monitoring fork addition (not upstream): a fixed, deterministic color
-// per server name, so rows from different servers are easy to tell apart at
-// a glance in tables that interleave multiple servers (GPU Status by
-// Server, Containers) -- same idea as the systems-table's per-metric color
-// coding, just keyed by hostname instead. Apple system colors, matching the
-// Liquid Glass theme; red/yellow excluded since those already carry
-// status/warning meaning elsewhere in the UI.
-const SERVER_NAME_COLORS = [
-	"text-[#007aff] dark:text-[#0a84ff]", // systemBlue
-	"text-[#34c759] dark:text-[#30d158]", // systemGreen
-	"text-[#af52de] dark:text-[#bf5af2]", // systemPurple
-	"text-[#ff9500] dark:text-[#ff9f0a]", // systemOrange
-	"text-[#5856d6] dark:text-[#5e5ce6]", // systemIndigo
-	"text-[#ff2d55] dark:text-[#ff375f]", // systemPink
-	"text-[#30b0c7] dark:text-[#64d2ff]", // systemTeal
+// gpu-monitoring fork addition (not upstream): a fixed, deterministic
+// two-color gradient per server name, so rows from different servers are
+// easy to tell apart at a glance in tables that interleave multiple
+// servers (GPU Status by Server, Containers, Systems) -- same idea as the
+// systems-table's per-metric color coding, just keyed by hostname instead.
+// Apple system colors, matching the Liquid Glass theme; red/yellow
+// excluded since those already carry status/warning meaning elsewhere.
+const SERVER_NAME_GRADIENTS = [
+	"from-[#007aff] dark:from-[#0a84ff] to-[#5856d6] dark:to-[#5e5ce6]", // blue -> indigo
+	"from-[#34c759] dark:from-[#30d158] to-[#30b0c7] dark:to-[#64d2ff]", // green -> teal
+	"from-[#af52de] dark:from-[#bf5af2] to-[#ff2d55] dark:to-[#ff375f]", // purple -> pink
+	"from-[#ff9500] dark:from-[#ff9f0a] to-[#af52de] dark:to-[#bf5af2]", // orange -> purple
+	"from-[#5856d6] dark:from-[#5e5ce6] to-[#30b0c7] dark:to-[#64d2ff]", // indigo -> teal
+	"from-[#ff2d55] dark:from-[#ff375f] to-[#ff9500] dark:to-[#ff9f0a]", // pink -> orange
+	"from-[#30b0c7] dark:from-[#64d2ff] to-[#007aff] dark:to-[#0a84ff]", // teal -> blue
 ] as const
 
-export function getServerNameColor(name: string): string {
+function hashName(name: string): number {
 	let hash = 0
 	for (let i = 0; i < name.length; i++) {
 		hash = (hash << 5) - hash + name.charCodeAt(i)
 		hash |= 0
 	}
-	return SERVER_NAME_COLORS[Math.abs(hash) % SERVER_NAME_COLORS.length]
+	return Math.abs(hash)
+}
+
+/** Gradient text classes (bg-clip-text) -- pair with `bg-gradient-to-r bg-clip-text text-transparent`. */
+export function getServerNameGradient(name: string): string {
+	return SERVER_NAME_GRADIENTS[hashName(name) % SERVER_NAME_GRADIENTS.length]
+}
+
+/** Full className for a server-name gradient-text span; just spread onto the element. */
+export function serverNameGradientClass(name: string): string {
+	return cn("bg-gradient-to-r bg-clip-text text-transparent", getServerNameGradient(name))
 }
 
 /** Adds event listener to node and returns function that removes the listener */

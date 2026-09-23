@@ -35,6 +35,7 @@ import {
 	formatTemperature,
 	parseSemVer,
 	secondsToUptimeString,
+	serverNameGradientClass,
 } from "@/lib/utils"
 import { batteryStateTranslations } from "@/lib/i18n"
 import type { SystemRecord } from "@/types"
@@ -159,7 +160,7 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 								<span className="invisible block" aria-hidden="true">
 									{longestName}
 								</span>
-								<span className="absolute inset-0 truncate">{name}</span>
+								<span className={cn("absolute inset-0 truncate", serverNameGradientClass(name))}>{name}</span>
 							</Link>
 						</span>
 						<Link href={linkUrl} className="inset-0 absolute size-full" aria-label={name}></Link>

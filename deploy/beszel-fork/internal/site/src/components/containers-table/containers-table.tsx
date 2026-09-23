@@ -22,7 +22,7 @@ import type { ContainerRecord } from "@/types"
 import { containerChartCols } from "@/components/containers-table/containers-table-columns"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { type ContainerHealth, ContainerHealthLabels } from "@/lib/enums"
-import { cn, getServerNameColor, useBrowserStorage } from "@/lib/utils"
+import { cn, serverNameGradientClass, useBrowserStorage } from "@/lib/utils"
 import { Sheet, SheetTitle, SheetHeader, SheetContent, SheetDescription } from "../ui/sheet"
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -396,7 +396,7 @@ function ContainerSheet({
 						<SheetTitle>{container.name}</SheetTitle>
 						<SheetDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
 							<Link
-								className={cn("hover:underline font-medium", getServerNameColor($allSystemsById.get()[container.system]?.name ?? ""))}
+								className={cn("hover:underline font-medium", serverNameGradientClass($allSystemsById.get()[container.system]?.name ?? ""))}
 								href={getPagePath($router, "system", { id: container.system })}
 							>
 								{$allSystemsById.get()[container.system]?.name ?? ""}
