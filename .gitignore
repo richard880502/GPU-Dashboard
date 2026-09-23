@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 /data/
+
+# Beszel pilot's own runtime data (SQLite DB + generated SSH keypair) -- not source
+/deploy/beszel/data/
