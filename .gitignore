@@ -1,4 +1,6 @@
 .env
 __pycache__/
 *.pyc
-/data/
+
+# Beszel's own runtime data (SQLite DB + generated SSH keypair) -- not source
+/deploy/beszel/data/

@@ -42,9 +42,6 @@ build() {
 
 build nvitop-exporter      deploy/docker/nvitop-exporter      deploy/docker/nvitop-exporter/Dockerfile
 build gpu-process-exporter deploy/docker/gpu-process-exporter deploy/docker/gpu-process-exporter/Dockerfile
-build prometheus-dashboard .                                  deploy/docker/prometheus-dashboard/Dockerfile
-build grafana-dashboard    .                                  deploy/docker/grafana-dashboard/Dockerfile
-build nginx-dashboard      .                                  deploy/docker/nginx-dashboard/Dockerfile
 
 echo
-echo "Built (and $( [[ "$PUSH_FLAG" == "--push" ]] && echo "pushed" || echo "validated, not pushed" )) all 5 images at version $VERSION."
+echo "Built (and $( [[ "$PUSH_FLAG" == "--push" ]] && echo "pushed" || echo "validated, not pushed" )) both images at version $VERSION."
