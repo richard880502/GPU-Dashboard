@@ -157,8 +157,13 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 									}
 								}}
 							>
+								{/* size to whichever is longer: the shared longest-name-seen-so-far,
+									or this row's own name -- $longestSystemName is filled in
+									asynchronously as systems' realtime updates arrive, so early
+									renders can't rely on it alone without truncating this row's
+									own (possibly not-yet-"longest") name */}
 								<span className="invisible block" aria-hidden="true">
-									{longestName}
+									{longestName.length > name.length ? longestName : name}
 								</span>
 								<span className={cn("absolute inset-0 truncate", serverNameGradientClass(name))}>{name}</span>
 							</Link>

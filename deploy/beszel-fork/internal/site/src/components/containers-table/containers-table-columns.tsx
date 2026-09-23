@@ -74,7 +74,7 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 			return (
 				<div className="ms-1 relative w-fit max-w-40">
 					<span className="invisible block whitespace-nowrap" aria-hidden="true">
-						{longestName}
+						{longestName.length > name.length ? longestName : name}
 					</span>
 					<span className={cn("absolute inset-0 truncate font-medium", serverNameGradientClass(name))}>{name}</span>
 				</div>

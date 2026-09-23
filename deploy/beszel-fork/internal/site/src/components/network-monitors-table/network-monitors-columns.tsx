@@ -122,7 +122,7 @@ export function getMonitorColumns(
 							<span className={cn("shrink-0 size-2 rounded-full", SYSTEM_STATUS_COLORS[status])} />
 							<div className="relative w-fit min-w-0 max-w-full">
 								<span className="invisible block whitespace-nowrap" aria-hidden="true">
-									{longestSystemName}
+									{longestSystemName.length > (name?.length ?? 0) ? longestSystemName : name}
 								</span>
 								<span className="absolute inset-0 truncate">{name}</span>
 							</div>
