@@ -74,10 +74,10 @@ import {
 } from "../ui/icons"
 
 const STATUS_COLORS = {
-	[SystemStatus.Up]: "bg-green-500",
-	[SystemStatus.Down]: "bg-red-500",
+	[SystemStatus.Up]: "bg-[#34c759] dark:bg-[#30d158]",
+	[SystemStatus.Down]: "bg-[#ff3b30] dark:bg-[#ff453a]",
 	[SystemStatus.Paused]: "bg-primary/40",
-	[SystemStatus.Pending]: "bg-yellow-500",
+	[SystemStatus.Pending]: "bg-[#ffcc00] dark:bg-[#ffd60a]",
 } as const
 
 function getMeterStateByThresholds(value: number, warn = 65, crit = 90): MeterState {

@@ -41,9 +41,9 @@ function getMeterState(value: number, warn = 65, crit = 90): MeterState {
 }
 
 const METER_COLORS = {
-	[MeterState.Good]: "bg-green-500",
-	[MeterState.Warn]: "bg-yellow-500",
-	[MeterState.Crit]: "bg-red-500",
+	[MeterState.Good]: "bg-[#34c759] dark:bg-[#30d158]",
+	[MeterState.Warn]: "bg-[#ffcc00] dark:bg-[#ffd60a]",
+	[MeterState.Crit]: "bg-[#ff3b30] dark:bg-[#ff453a]",
 } as const
 
 function Meter({ value }: { value: number }) {

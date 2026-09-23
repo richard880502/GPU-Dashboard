@@ -21,9 +21,13 @@
 # field exactly (PocketBase's own user model, not a Beszel-specific thing).
 services:
   beszel-hub:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.1.0
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.2.0
     container_name: beszel
     restart: unless-stopped
+    # this host runs 100+ unrelated containers and has exhausted Docker's
+    # predefined subnet pool -- join the pre-existing default bridge network
+    # instead of letting Compose create a fresh one for this project.
+    network_mode: bridge
     environment:
       - AUTO_LOGIN=wingene@internal.local
       - APP_URL=http://192.168.1.76:13000
