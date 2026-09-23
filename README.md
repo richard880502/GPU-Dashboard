@@ -99,7 +99,7 @@ Images are published to GHCR (`ghcr.io/richard880502/gpu-dashboard/beszel-hub`
 and `beszel-agent-nvidia`, both public, currently `v2.0.0`) — no build step
 needed unless you've changed `deploy/beszel-fork`.
 
-On the monitoring server (`192.168.1.76`), run the hub:
+### 2a. Start the hub (monitoring server, `192.168.1.76`, once)
 
 ```bash
 mkdir -p deploy/beszel/data && chmod 777 deploy/beszel/data
@@ -115,10 +115,26 @@ model just requires an email-shaped identity field, and `AUTO_LOGIN` works
 by exact string match against it, not by sending anything. Password only
 matters on first run (creates the account); ignored on later runs.
 
-On every GPU server (including the monitoring server itself), run the agent:
+Confirm it's up: `curl -s http://192.168.1.76:13000` should return HTML.
+
+### 2b. Start the agent (every GPU server, including .76 itself)
+
+The agent needs the hub's public key. Grab it once (from the monitoring
+server, or anywhere that can reach it):
 
 ```bash
-HUB_SSH_PUBLIC_KEY="<from the hub's Add System dialog>" \
+TOKEN=$(curl -s -X POST http://192.168.1.76:13000/api/collections/users/auth-with-password \
+  -H 'Content-Type: application/json' \
+  -d '{"identity":"wingene@internal.local","password":"<the USER_PASSWORD from .env>"}' \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+curl -s http://192.168.1.76:13000/api/beszel/getkey -H "Authorization: Bearer $TOKEN"
+# -> {"key":"ssh-ed25519 AAAA...", ...}
+```
+
+Then on each GPU server:
+
+```bash
+HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." \
   docker compose -f deploy/standalone/beszel-agent-compose.yml up -d
 ```
 
@@ -127,11 +143,31 @@ optional — Beszel's own NVML collector silently drops GPU temperature on some
 hosts (an ignored NVML return code); `nvidia-smi` was verified reliable on
 every host in this cluster. Don't remove it when redeploying.
 
-Open `http://192.168.1.76:13000` — home page shows a cluster-wide GPU
-summary card, a per-GPU status table (click a row to see what's running on
-that GPU, including plain host processes not in any container), and the
-stock Beszel systems/containers views. `AUTO_LOGIN` skips the login screen
-for the internal network, same approach used for the old Grafana setup.
+### 2c. Register each system with the hub
+
+The agent alone doesn't make it show up — the hub only tries connecting to
+hosts it already knows about. Easiest: open `http://192.168.1.76:13000`,
+log in (email/password from step 2a), click **Add System**, and fill in the
+hostname/IP (agent port defaults to `45876`). Repeat once per GPU server.
+
+To script this instead (what was actually used to bring up all 5 hosts at
+once):
+
+```bash
+curl -s -X POST http://192.168.1.76:13000/api/collections/systems/records \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"wingene-76","host":"192.168.1.76","port":"45876","users":["<user id, from the auth response above>"]}'
+```
+
+Status goes `pending` → `up` within ~10s once the hub successfully connects.
+
+### 2d. Open the dashboard
+
+`http://192.168.1.76:13000` — home page shows a cluster-wide GPU summary
+card, a per-GPU status table (click a row to see what's running on that GPU,
+including plain host processes not in any container), and the stock Beszel
+systems/containers views. `AUTO_LOGIN` skips the login screen for the
+internal network, same approach used for the old Grafana setup.
 
 ## 3. Firewall
 
