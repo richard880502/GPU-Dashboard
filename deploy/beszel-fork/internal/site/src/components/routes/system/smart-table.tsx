@@ -132,12 +132,13 @@ export const createColumns = (
 		header: ({ column }) => <HeaderButton column={column} name={t`System`} Icon={ServerIcon} />,
 		cell: ({ getValue }) => {
 			const allSystems = useStore($allSystemsById)
+			const name = allSystems[getValue() as string]?.name ?? ""
 			return (
 				<div className="ms-1.5 relative w-fit max-w-44">
 					<span className="invisible block whitespace-nowrap" aria-hidden="true">
-						{longestName}
+						{longestName.length > name.length ? longestName : name}
 					</span>
-					<span className="absolute inset-0 truncate">{allSystems[getValue() as string]?.name ?? ""}</span>
+					<span className="absolute inset-0 truncate">{name}</span>
 				</div>
 			)
 		},
@@ -146,14 +147,17 @@ export const createColumns = (
 		accessorKey: "name",
 		sortingFn: (a, b) => a.original.name.localeCompare(b.original.name),
 		header: ({ column }) => <HeaderButton column={column} name={t`Device`} Icon={HardDrive} />,
-		cell: ({ getValue }) => (
-			<div className="font-medium ms-1 relative w-fit max-w-44" title={getValue() as string}>
-				<span className="invisible block whitespace-nowrap" aria-hidden="true">
-					{longestDevice}
-				</span>
-				<span className="absolute inset-0 truncate">{getValue() as string}</span>
-			</div>
-		),
+		cell: ({ getValue }) => {
+			const value = getValue() as string
+			return (
+				<div className="font-medium ms-1 relative w-fit max-w-44" title={value}>
+					<span className="invisible block whitespace-nowrap" aria-hidden="true">
+						{longestDevice.length > value.length ? longestDevice : value}
+					</span>
+					<span className="absolute inset-0 truncate">{value}</span>
+				</div>
+			)
+		},
 	},
 	{
 		accessorKey: "model",
@@ -161,14 +165,17 @@ export const createColumns = (
 		header: ({ column }) => (
 			<HeaderButton column={column} name={t({ message: "Model", comment: "Device model" })} Icon={Box} />
 		),
-		cell: ({ getValue }) => (
-			<div className="ms-1 relative w-fit max-w-44" title={getValue() as string}>
-				<span className="invisible block whitespace-nowrap" aria-hidden="true">
-					{longestModel}
-				</span>
-				<span className="absolute inset-0 truncate">{getValue() as string}</span>
-			</div>
-		),
+		cell: ({ getValue }) => {
+			const value = getValue() as string
+			return (
+				<div className="ms-1 relative w-fit max-w-44" title={value}>
+					<span className="invisible block whitespace-nowrap" aria-hidden="true">
+						{longestModel.length > value.length ? longestModel : value}
+					</span>
+					<span className="absolute inset-0 truncate">{value}</span>
+				</div>
+			)
+		},
 	},
 	{
 		accessorKey: "capacity",
