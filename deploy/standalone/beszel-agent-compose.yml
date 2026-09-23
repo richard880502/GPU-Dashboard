@@ -18,8 +18,20 @@
 # commit. Not filled in below because it doesn't exist until the hub has
 # started at least once; fill it in after that (see README.md section 2).
 #
+# SMART disk monitoring (https://beszel.dev/guide/smart-data) needs the base
+# controller device(s) passed through -- not partitions -- plus SYS_RAWIO
+# (SATA/ATA) and SYS_ADMIN (NVMe) capabilities. smartmontools is already
+# built into this image. Device paths differ per host -- check with
+# `lsblk -d -o NAME,TYPE,SIZE,MODEL` first (map the base name, e.g. nvme0,
+# not nvme0n1) and set SMART_DEVICE_1/2 accordingly; leave SMART_DEVICE_2
+# unset (defaults to the same as _1, so no duplicate) on single-drive hosts.
+# After first start, trigger an initial read:
+#   curl -X POST "$HUB_URL/api/beszel/smart/refresh?system=<system id>" \
+#     -H "Authorization: Bearer <token>"
+#
 # Usage:
-#   HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." docker compose -f beszel-agent-compose.yml up -d
+#   HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." SMART_DEVICE_1=/dev/nvme0 SMART_DEVICE_2=/dev/nvme1 \
+#     docker compose -f beszel-agent-compose.yml up -d
 services:
   beszel-agent:
     image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.0.0
@@ -27,6 +39,12 @@ services:
     restart: unless-stopped
     network_mode: host
     gpus: all
+    cap_add:
+      - SYS_RAWIO
+      - SYS_ADMIN
+    devices:
+      - ${SMART_DEVICE_1:?set SMART_DEVICE_1, e.g. /dev/nvme0 (see lsblk -d)}:${SMART_DEVICE_1:?}
+      - ${SMART_DEVICE_2:-${SMART_DEVICE_1:?}}:${SMART_DEVICE_2:-${SMART_DEVICE_1:?}}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - beszel_agent_data:/var/lib/beszel-agent
