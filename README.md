@@ -1,40 +1,34 @@
 # GPU Monitoring
 
-Prometheus + Grafana monitoring for the GPU cluster (`wingene-76` … `wingene-80`,
-`192.168.1.76-80`), built on `nvitop-exporter`, with the monitoring stack itself
-running on `wingene-76` (`192.168.1.76`). Scope follows the MVP in the build plan:
-metrics pipeline + dashboard only — no AlertManager, SSO, or custom frontend yet.
+GPU cluster monitoring (`wingene-76` … `wingene-80`, `192.168.1.76-80`), built on
+`nvitop-exporter` + a custom `gpu-process-exporter` for GPU-to-container
+attribution, presented through **Beszel** — specifically, this project's own fork
+of it (`deploy/beszel-fork/`), which adds native PID→Docker-container GPU
+attribution and a per-GPU process drill-down that upstream Beszel doesn't have.
+The monitoring stack itself (Beszel hub) runs on `wingene-76` (`192.168.1.76`).
 
-**Status: deployed and live** — all 5 GPU servers and the Prometheus/Grafana/nginx
-stack are running as of this setup. See "Deployment notes" below for what differs
-from the original plan text and why.
+**Status: Beszel is the primary/only dashboard as of 2026-09-23.** The earlier
+Prometheus + Grafana + nginx stack has been decommissioned (see
+`docs/beszel-integration-research.md` for the full history of why Beszel was
+piloted, what gap the fork closes, and every bug found/fixed along the way).
 
 ## Layout
 
 ```
 gpu-monitoring/
-├── docker-compose.yml          # Prometheus + Grafana + Nginx (monitoring server)
 ├── inventory/servers.yaml      # GPU server list
-├── prometheus/
-│   ├── prometheus.yml          # scrape config: gpu-servers (5051), gpu-process-containers (5052),
-│   │                            # node-exporter (9100)
-│   └── rules/gpu-alerts.yml    # rule definitions, visible in Prometheus UI only
-│                                # (no Alertmanager wired up yet)
-├── grafana/
-│   └── provisioning/
-│       ├── datasources/prometheus.yml
-│       └── dashboards/
-│           ├── dashboards.yml
-│           └── files/cluster-overview.json   # hand-built dashboard (see "Default home
-│                                              # dashboard" below) — the official
-│                                              # nvitop-dashboard it started from was
-│                                              # later removed, see git history
-├── nginx/nginx.conf            # reverse proxy -> grafana:3000
-└── deploy/
-    ├── install-exporter.sh     # run on each GPU server — deploys the containers below
-    └── docker/
-        ├── nvitop-exporter/Dockerfile
-        └── gpu-process-exporter/{Dockerfile,gpu_process_exporter.py}
+├── deploy/
+│   ├── install-exporter.sh     # run on each GPU server — deploys the exporters below
+│   ├── build-images.sh         # builds/publishes the two exporter images
+│   ├── docker/
+│   │   ├── nvitop-exporter/Dockerfile
+│   │   └── gpu-process-exporter/{Dockerfile,gpu_process_exporter.py}
+│   ├── standalone/
+│   │   ├── exporter-compose.yml        # nvitop-exporter + gpu-process-exporter + node-exporter
+│   │   ├── beszel-hub-compose.yml      # Beszel hub — run on the monitoring server only
+│   │   └── beszel-agent-compose.yml    # Beszel agent — run on every GPU server
+│   └── beszel-fork/            # vendored github.com/henrygd/beszel + our GPU/container patches
+└── docs/beszel-integration-research.md   # why Beszel, the fork's design, every bug fixed
 ```
 
 ## 1. On each GPU server (192.168.1.76 / .77 / .78 / .79 / .80)
@@ -48,26 +42,25 @@ docker pull ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.1.1
 docker pull ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.1.1
 
 docker run -d --name nvitop-exporter --restart=always --gpus all --pid host \
+    -v /etc/passwd:/etc/passwd:ro \
     -p 5051:5050 ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.1.1 \
     --bind-address 0.0.0.0 --port 5050 --hostname wingene-76
 
 docker run -d --name gpu-process-exporter --restart=always --gpus all --pid host \
     -e EXPORTER_HOSTNAME=wingene-76 \
     -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    -v /etc/passwd:/etc/passwd:ro \
     -p 5052:5052 ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.1.1
 ```
+
+The `/etc/passwd` mount is read-only and lets each exporter resolve real
+usernames from the host's own user database instead of falling back to raw
+UIDs (see the research doc's bug #7 for why this is needed).
 
 Swap `wingene-76` for the actual hostname of whichever box you're on. Images are
 public — no `docker login` needed to pull. Only `nvitop-exporter` and
 `gpu-process-exporter` are published; `node-exporter` below is the official
 upstream image, nothing custom to publish.
-
-Verified (2026-09-22): a completely fresh `git clone` of this repo, with no local
-image builds at all — just `docker pull` for these two plus `docker compose up -d`
-for the monitoring stack — reproduced a fully working deployment (16/16 Prometheus
-targets up, dashboard queries returning correct data) on a different checkout path
-than the one that had been manually tweaked all along. The repo doesn't secretly
-depend on some untracked local state.
 
 ### Option B: build from source (if you've changed the exporter code)
 
@@ -81,20 +74,16 @@ Repeat either option for `.77`/`wingene-77`, `.78`/`wingene-78`, `.79`/`wingene-
 (`install-exporter.sh` also handles the third one, `node-exporter`, either way):
 
 - **nvitop-exporter** (`:5051`, `--gpus all --pid host`) — GPU/host metrics
-  (util, VRAM, temp, power, CPU%, RAM%).
+  (util, VRAM, temp, power, CPU%, RAM%), including per-process GPU
+  memory/utilization.
 - **gpu-process-exporter** (`:5052`, `--gpus all --pid host`) — a small custom
   exporter that maps each GPU-using PID to the Docker container it's running
   in (via `/proc/<pid>/cgroup` + the Docker API), so the dashboard can answer
   "whose container is holding this GPU" without SSH-ing in to run `docker ps`
   by hand. Needs `/var/run/docker.sock` mounted read-only.
 - **node-exporter** (`:9100`, official `prom/node-exporter` image, `--net=host
-  --pid=host`) — nvitop-exporter's host metrics don't include disk usage or
-  CPU temperature (it's a GPU-process tool, not a general host exporter), so
-  this fills that gap: disk usage % (`node_filesystem_avail_bytes` /
-  `node_filesystem_size_bytes` for `mountpoint="/"`) and CPU package
-  temperature (`node_hwmon_temp_celsius`, `--collector.hwmon`, filtered to the
-  sensor labelled `"Package id 0"` — confirmed present via `coretemp` on all 5
-  hosts before deploying).
+  --pid=host`) — host metrics nvitop-exporter doesn't cover (disk usage, CPU
+  temperature via `--collector.hwmon`).
 
 Verify either option worked:
 
@@ -104,65 +93,46 @@ curl http://192.168.1.76:5052/metrics | head
 curl http://192.168.1.76:9100/metrics | head
 ```
 
-## 2. On the monitoring server (192.168.1.76)
+## 2. Beszel (monitoring server + every GPU server)
+
+On the monitoring server (`192.168.1.76`), build and run the hub:
 
 ```bash
-git clone https://github.com/richard880502/gpu-dashboard.git
-cd gpu-dashboard
-cp .env.example .env   # set a real GRAFANA_ADMIN_PASSWORD
-docker compose up -d
+cd deploy/beszel-fork
+bun install --cwd internal/site && bun run --cwd internal/site build
+docker build -f internal/dockerfile_hub -t beszel-hub-fork:test .
+cd ../..
+mkdir -p deploy/beszel/data && chmod 777 deploy/beszel/data
+AUTO_LOGIN_EMAIL=<your email> APP_HOST=192.168.1.76 \
+  docker compose -f deploy/standalone/beszel-hub-compose.yml up -d
 ```
 
-No image building here at all — `prometheus`, `grafana`, and `nginx` are all
-pulled straight from Docker Hub as official images.
-
-Prometheus/Grafana data lives under `./data/prometheus` and `./data/grafana`
-(bind mounts, gitignored) rather than Docker-managed named volumes — makes it
-obvious where the data actually is and easy to `du -sh` or back up directly.
-Since Prometheus runs as uid 65534 and Grafana as uid 472 inside their
-containers (not your own host uid, and you likely don't have root to `chown`
-to those either), the directories need to be world-writable:
+On every GPU server (including the monitoring server itself), build and run
+the agent:
 
 ```bash
-mkdir -p data/prometheus data/grafana
-chmod 777 data/prometheus data/grafana
+cd deploy/beszel-fork
+docker build -f internal/dockerfile_agent_nvidia -t beszel-agent-nvidia-fork:test .
+cd ../..
+HUB_HOST=192.168.1.76 HUB_SSH_PUBLIC_KEY="<from the hub's Add System dialog>" \
+  docker compose -f deploy/standalone/beszel-agent-compose.yml up -d
 ```
 
-- Prometheus: `http://192.168.1.76:9090` — check **Status → Targets**, all 5
-  `gpu-servers`, all 5 `gpu-process-containers`, and all 5 `node-exporter`
-  targets should show `UP` (16 total, including Prometheus scraping itself).
-- Grafana: `http://192.168.1.76:13000` (or through nginx on port 80, no login
-  needed — see below) — opens straight to **GPU Cluster Overview** (see
-  "Default home dashboard" below). This is the only dashboard now — the
-  official nvitop-dashboard it was originally imported from was deleted
-  (2026-09-22, accepted trade-off: lost per-GPU historical trend charts / PCIe
-  / NVLink, everything else was already ported over first).
+`GPU_COLLECTOR=nvidia-smi` in the agent compose file is required, not
+optional — Beszel's own NVML collector silently drops GPU temperature on some
+hosts (an ignored NVML return code); `nvidia-smi` was verified reliable on
+every host in this cluster. Don't remove it when redeploying.
 
-Anonymous viewer access is enabled (internal network, so no login prompt for
-viewing). Admin login is still available at `/login` for editing
-(`admin` / see `.env`).
+Open `http://192.168.1.76:18090` — home page shows a cluster-wide GPU
+summary card, a per-GPU status table (click a row to see what's running on
+that GPU, including plain host processes not in any container), and the
+stock Beszel systems/containers views. `AUTO_LOGIN` skips the login screen
+for the internal network, same approach used for the old Grafana setup.
 
-### Default home dashboard
+Both images are currently local `:test` builds, not published to any
+registry — see "Remaining work" in `docs/beszel-integration-research.md`.
 
-There's no config-file way to set this — `GF_DASHBOARDS_DEFAULT_HOME_UID` looked
-like the right env var but turned out to only register as a fallback that
-`/api/dashboards/home` doesn't actually consult (confirmed the hard way, so it's
-not set in `docker-compose.yml` at all now). What actually works is the **org
-preference**, set via one API call after the stack is up. It's stored in
-`./data/grafana`, so a fresh clone or a wiped data directory both mean redoing
-this. The dashboard's Grafana UID is auto-generated fresh each time (not pinned
-in the JSON), so look it up first rather than reusing an old one from another
-instance:
-
-```bash
-UID=$(curl -s http://localhost:13000/api/search | python3 -c \
-  "import json,sys; print(json.load(sys.stdin)[-1]['uid'])")
-curl -X PUT -u admin:<password> -H 'Content-Type: application/json' \
-  http://192.168.1.76:13000/api/org/preferences \
-  -d "{\"homeDashboardUID\": \"$UID\"}"
-```
-
-## 3. Firewall (Phase 9 of the plan)
+## 3. Firewall
 
 `nvitop-exporter:5051`, `gpu-process-exporter:5052`, and `node-exporter:9100`
 should only be reachable from the monitoring server, not from general users.
@@ -178,51 +148,34 @@ ufw deny 9100/tcp
 ```
 
 Not yet applied — none of the 5 GPU boxes grant passwordless sudo to the deploy
-user, so `ufw` needs to be run interactively with the box's sudo password. Do this
-next.
+user, so `ufw` needs to be run interactively with the box's sudo password.
 
-## Deployment notes (what differs from the original plan text, and why)
+## Deployment notes (still-relevant history from the original Prometheus/Grafana build)
 
 - **Exporters run in Docker, not systemd.** None of the 5 GPU servers grant
-  passwordless sudo to the `richard` account, so the systemd-unit approach in the
-  plan doc can't be applied non-interactively. All 5 boxes already have Docker with
-  the NVIDIA runtime working and `richard` in the `docker` group, so exporters run
-  as `--restart=always` containers instead — same effect (auto-start, auto-restart),
-  no root needed.
+  passwordless sudo to the `richard` account, so exporters run as
+  `--restart=always` containers instead — auto-start, auto-restart, no root
+  needed.
 - **nvitop-exporter's port is 5051, not 5050.** Port `5050` was already bound by
-  other services: `pretrieval-pgadmin` (pgAdmin4) on `.78`, and an unidentified
-  native process on `.79`. Using `5051` everywhere avoids both conflicts and keeps
-  the scrape config uniform across all 5 hosts.
-- **`hostname` label:** `nvitop-exporter` defaults to labelling metrics with its own
-  container's internal IP (e.g. `172.17.0.5`), not the real machine name — it reads
-  this from a `--hostname` CLI flag, not from the container's actual hostname. Each
-  container is started with `--hostname wingene-XX` explicitly so Grafana's
-  `hostname` filter shows the real box names.
-- **Container attribution (`gpu-process-exporter`) is a custom addition**, not part
-  of `nvitop-exporter` itself. It replicates a PID→container lookup (via
-  `/proc/<pid>/cgroup` + the Docker API) and emits a `gpu_process_container_info`
-  metric with the *exact same* label set nvitop-exporter uses for its own
-  per-process metrics (`hostname, index, pid, username, uuid`) — this is required
-  for Grafana's `merge`/`groupBy` transform on the "GPU Processes" table to fold it
-  into the same row instead of creating a separate orphan row. This included
-  matching nvitop-exporter's own username-resolution fallback (raw UID string when
-  the name isn't in the container's local `/etc/passwd`) so the two exactly agree.
-- **Grafana host port is 13000, not 3000** — changed directly on the monitoring
-  server outside of this repo's sync (kept as-is rather than reverted). nginx on
-  port 80 is unaffected since it talks to the `grafana` container over the internal
-  Docker network on its container port 3000, regardless of the host mapping.
-- **Anonymous Grafana access** (`GF_AUTH_ANONYMOUS_ENABLED=true`, role `Viewer`) —
-  added because this is an internal-only network; admin login still guards actual
-  edits.
+  other services on `.78` and `.79`. Using `5051` everywhere avoids both
+  conflicts and keeps things uniform across all 5 hosts.
+- **`--hostname` flag:** `nvitop-exporter` defaults to labelling metrics with
+  its own container's internal IP, not the real machine name — each container
+  is started with `--hostname wingene-XX` explicitly.
+- **`gpu-process-exporter` is a custom addition**, not part of `nvitop-exporter`
+  itself. It replicates a PID→container lookup (via `/proc/<pid>/cgroup` + the
+  Docker API) and emits a `gpu_process_container_info` metric with the same
+  label set `nvitop-exporter` uses for its own per-process metrics, which is
+  what the Beszel fork's `agent/gpu_process_container.go` joins against.
 
 ## What's deliberately not in this version
 
-Per the plan's own MVP scope: AlertManager routing, OAuth/LDAP/SSO in front of
-Grafana, Kubernetes/service discovery, Triton/vLLM metrics, and a custom frontend.
-The alert *rules* file exists (so thresholds are visible in Prometheus's own UI) but
-nothing is wired to notify anyone yet — add Alertmanager later when you're ready for
-Phase 10.
+AlertManager-style notification routing, OAuth/LDAP/SSO in front of the
+dashboard, Kubernetes/service discovery, Triton/vLLM metrics.
 
 ## Known gaps to fill in
 
 - Firewall rule above — needs interactive sudo on each GPU box.
+- Beszel hub/agent images aren't published yet (local `:test` builds only).
+- No backup mechanism for the Beszel hub's SQLite database
+  (`deploy/beszel/data/`).
