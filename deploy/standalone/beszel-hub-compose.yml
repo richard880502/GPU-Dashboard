@@ -21,7 +21,7 @@
 # field exactly (PocketBase's own user model, not a Beszel-specific thing).
 services:
   beszel-hub:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.0.0
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.1.0
     container_name: beszel
     restart: unless-stopped
     environment:

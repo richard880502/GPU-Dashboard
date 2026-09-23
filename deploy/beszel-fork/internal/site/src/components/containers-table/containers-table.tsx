@@ -289,7 +289,7 @@ async function getLogsHtml(container: ContainerRecord): Promise<string> {
 	}
 }
 
-async function getInfoHtml(container: ContainerRecord): Promise<string> {
+async function getInfoHtml(container: ContainerRecord): Promise<{ html: string; pid?: number }> {
 	try {
 		let [{ highlighter }, { info }] = await Promise.all([
 			import("@/lib/shiki"),
@@ -298,13 +298,17 @@ async function getInfoHtml(container: ContainerRecord): Promise<string> {
 				container: container.id,
 			}),
 		])
+		let pid: number | undefined
 		try {
-			info = JSON.stringify(JSON.parse(info), null, 2)
+			const parsed = JSON.parse(info)
+			pid = parsed?.State?.Pid || undefined
+			info = JSON.stringify(parsed, null, 2)
 		} catch (_) {}
-		return info ? highlighter.codeToHtml(info, { lang: "json", theme: syntaxTheme }) : t`No results.`
+		const html = info ? highlighter.codeToHtml(info, { lang: "json", theme: syntaxTheme }) : t`No results.`
+		return { html, pid }
 	} catch (error) {
 		console.error(error)
-		return ""
+		return { html: "" }
 	}
 }
 
@@ -319,6 +323,7 @@ function ContainerSheet({
 }) {
 	const [logsDisplay, setLogsDisplay] = useState<string>("")
 	const [infoDisplay, setInfoDisplay] = useState<string>("")
+	const [pid, setPid] = useState<number | undefined>(undefined)
 	const [logsFullscreenOpen, setLogsFullscreenOpen] = useState<boolean>(false)
 	const [infoFullscreenOpen, setInfoFullscreenOpen] = useState<boolean>(false)
 	const [isRefreshingLogs, setIsRefreshingLogs] = useState<boolean>(false)
@@ -356,11 +361,13 @@ function ContainerSheet({
 	useEffect(() => {
 		setLogsDisplay("")
 		setInfoDisplay("")
+		setPid(undefined)
 		if (!container) return
 		;(async () => {
-			const [logsHtml, infoHtml] = await Promise.all([getLogsHtml(container), getInfoHtml(container)])
+			const [logsHtml, info] = await Promise.all([getLogsHtml(container), getInfoHtml(container)])
 			setLogsDisplay(logsHtml)
-			setInfoDisplay(infoHtml)
+			setInfoDisplay(info.html)
+			setPid(info.pid)
 			setTimeout(scrollLogsToBottom, 20)
 		})()
 	}, [container])
@@ -397,6 +404,12 @@ function ContainerSheet({
 							{container.image}
 							<Separator orientation="vertical" className="h-2.5 bg-muted-foreground opacity-70" />
 							{container.id}
+							{pid !== undefined && (
+								<>
+									<Separator orientation="vertical" className="h-2.5 bg-muted-foreground opacity-70" />
+									PID {pid}
+								</>
+							)}
 							{/* {container.ports && (
 								<>
 									<Separator orientation="vertical" className="h-2.5 bg-muted-foreground opacity-70" />
