@@ -13,6 +13,32 @@ export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
 }
 
+// gpu-monitoring fork addition (not upstream): a fixed, deterministic color
+// per server name, so rows from different servers are easy to tell apart at
+// a glance in tables that interleave multiple servers (GPU Status by
+// Server, Containers) -- same idea as the systems-table's per-metric color
+// coding, just keyed by hostname instead. Apple system colors, matching the
+// Liquid Glass theme; red/yellow excluded since those already carry
+// status/warning meaning elsewhere in the UI.
+const SERVER_NAME_COLORS = [
+	"text-[#007aff] dark:text-[#0a84ff]", // systemBlue
+	"text-[#34c759] dark:text-[#30d158]", // systemGreen
+	"text-[#af52de] dark:text-[#bf5af2]", // systemPurple
+	"text-[#ff9500] dark:text-[#ff9f0a]", // systemOrange
+	"text-[#5856d6] dark:text-[#5e5ce6]", // systemIndigo
+	"text-[#ff2d55] dark:text-[#ff375f]", // systemPink
+	"text-[#30b0c7] dark:text-[#64d2ff]", // systemTeal
+] as const
+
+export function getServerNameColor(name: string): string {
+	let hash = 0
+	for (let i = 0; i < name.length; i++) {
+		hash = (hash << 5) - hash + name.charCodeAt(i)
+		hash |= 0
+	}
+	return SERVER_NAME_COLORS[Math.abs(hash) % SERVER_NAME_COLORS.length]
+}
+
 /** Adds event listener to node and returns function that removes the listener */
 export function listen<T extends Event = Event>(node: Node, event: string, handler: (event: T) => void) {
 	node.addEventListener(event, handler as EventListener)

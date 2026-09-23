@@ -8,7 +8,7 @@ import { pb } from "@/lib/api"
 import { $allSystemsById } from "@/lib/stores"
 import { MeterState } from "@/lib/enums"
 import type { GPUProcess } from "@/types"
-import { cn, decimalString } from "@/lib/utils"
+import { cn, decimalString, getServerNameColor } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { HashIcon } from "lucide-react"
 import { GpuIcon } from "./ui/icons"
@@ -217,7 +217,7 @@ export function GpuStatusTable() {
 									<td className="py-2 px-2">
 										<Link
 											href={getPagePath($router, "system", { id: row.systemId })}
-											className="hover:underline"
+											className={cn("hover:underline font-medium", getServerNameColor(systems[row.systemId]?.name ?? row.systemId))}
 											onClick={(e) => e.stopPropagation()}
 										>
 											{systems[row.systemId]?.name ?? row.systemId}
