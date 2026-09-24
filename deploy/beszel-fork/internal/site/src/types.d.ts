@@ -188,7 +188,9 @@ export interface GPUData {
 export interface GPUProcess {
 	/** pid */
 	pid: string
-	/** container name ("host" if not containerized) */
+	/** container name, or "host:<process name>" if not containerized, or
+	 * "k8s:<namespace>/<pod>/<container>" for a k8s pod not visible on the
+	 * Docker socket */
 	c: string
 	/** memory (mb) */
 	mu?: number

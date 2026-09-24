@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Maps each GPU-using PID to the Docker container it runs in (or "host" if none).
+"""Maps each GPU-using PID to the Docker container it runs in (or
+"host:<process name>", e.g. "host:llama-server", if it isn't in a
+container at all -- the process name alone is what makes multiple
+unattributed processes on the same host distinguishable from each other
+in the UI, instead of every one of them just showing up as "host").
 
 Same label set as nvitop-exporter's process_* metrics (hostname, index, pid,
 username, uuid) plus container_name, so Grafana can merge this into the
@@ -85,15 +89,34 @@ def username_for_pid(pid):
         return str(uid)
 
 
+def host_label(pid):
+    name = process_name_for_pid(pid)
+    return f"host:{name}" if name else "host"
+
+
+def process_name_for_pid(pid):
+    """Short executable name for a pid (e.g. "llama-server"), from
+    /proc/<pid>/comm -- used to make an unattributed ("host") process
+    distinguishable from other unattributed ones, instead of every one of
+    them showing up identically as just "host" with nothing to tell them
+    apart by.
+    """
+    try:
+        with open(f"/proc/{pid}/comm") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
 def container_name_for_pid(pid, docker_client, cri_map):
     try:
         with open(f"/proc/{pid}/cgroup") as f:
             content = f.read()
     except OSError:
-        return "host"
+        return host_label(pid)
     ids = CGROUP_ID_RE.findall(content)
     if not ids:
-        return "host"
+        return host_label(pid)
     # Docker: try every id found (there's normally just one) against the
     # Docker API.
     for cid in ids:
@@ -108,7 +131,7 @@ def container_name_for_pid(pid, docker_client, cri_map):
     for cid in reversed(ids):
         if cid in cri_map:
             return cri_map[cid]
-    return "host"
+    return host_label(pid)
 
 
 def cri_container_map(cri_socket, exec_container, docker_client):

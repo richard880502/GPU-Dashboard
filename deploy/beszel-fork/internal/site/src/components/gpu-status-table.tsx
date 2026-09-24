@@ -15,6 +15,27 @@ import { GpuIcon } from "./ui/icons"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet"
 import { $router, Link } from "./router"
 
+// Renders a process's container attribution readably instead of the raw
+// "host:<process>" / "k8s:<namespace>/<pod>/<container>" wire format.
+function ProcessContainerLabel({ value }: { value: string }) {
+	if (value.startsWith("host:")) {
+		const processName = value.slice("host:".length)
+		return <span className="text-muted-foreground">host ({processName})</span>
+	}
+	if (value === "host") {
+		return <span className="text-muted-foreground">host (not containerized)</span>
+	}
+	if (value.startsWith("k8s:")) {
+		const [namespace, pod, container] = value.slice("k8s:".length).split("/")
+		return (
+			<span title={`${namespace}/${pod}/${container}`}>
+				<span className="text-muted-foreground">k8s:</span> {pod}
+			</span>
+		)
+	}
+	return <>{value}</>
+}
+
 interface GpuEntry {
 	n: string
 	mu?: number
@@ -136,11 +157,7 @@ function GpuProcessesSheet({
 										<td className="py-2 pe-4 tabular-nums">{proc.pid}</td>
 										<td className="py-2 pe-4">{proc.un ?? "-"}</td>
 										<td className="py-2 pe-4">
-											{proc.c === "host" ? (
-												<span className="text-muted-foreground">host (not containerized)</span>
-											) : (
-												proc.c
-											)}
+											<ProcessContainerLabel value={proc.c} />
 										</td>
 										<td className="py-2 pe-4 tabular-nums">{proc.mu ? `${decimalString(proc.mu, 0)} MiB` : "-"}</td>
 										<td className="py-2 pe-4 tabular-nums">{proc.mp ? `${decimalString(proc.mp, 1)}%` : "0%"}</td>
