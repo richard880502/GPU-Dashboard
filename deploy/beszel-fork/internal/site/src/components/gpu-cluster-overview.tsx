@@ -14,6 +14,7 @@ interface GpuEntry {
 	mu: number
 	mt: number
 	u: number
+	procs?: { pid: string; c: string }[]
 }
 
 interface ClusterGpuStats {
@@ -24,38 +25,13 @@ interface ClusterGpuStats {
 	avgVram: number
 }
 
-// "Occupied" means at least one real process is attributed to that GPU
-// (via gpu-process-exporter's PID->container mapping), not just "reports
-// nonzero memory used" -- idle GPUs still hold a small driver/reserved
-// memory footprint, which made every GPU count as "occupied" before.
-async function fetchOccupiedGpuKeys(): Promise<Set<string>> {
-	const records = await pb.collection("containers").getList(1, 500, {
-		filter: pb.filter("gpuPid != {:empty}", { empty: "" }),
-		fields: "system,gpuIndex",
-		requestKey: "gpu-cluster-overview-containers",
-	})
-
-	const occupied = new Set<string>()
-	for (const rec of records.items as unknown as { system: string; gpuIndex?: string }[]) {
-		for (const idx of (rec.gpuIndex ?? "").split(",")) {
-			if (idx) {
-				occupied.add(`${rec.system}:${idx}`)
-			}
-		}
-	}
-	return occupied
-}
-
 async function fetchClusterGpuStats(): Promise<ClusterGpuStats> {
-	const [statsRecords, occupiedKeys] = await Promise.all([
-		pb.collection("system_stats").getList(1, 200, {
-			filter: pb.filter("type = {:t}", { t: "1m" }),
-			sort: "-created",
-			fields: "system,stats,created",
-			requestKey: "gpu-cluster-overview",
-		}),
-		fetchOccupiedGpuKeys(),
-	])
+	const statsRecords = await pb.collection("system_stats").getList(1, 200, {
+		filter: pb.filter("type = {:t}", { t: "1m" }),
+		sort: "-created",
+		fields: "system,stats,created",
+		requestKey: "gpu-cluster-overview",
+	})
 
 	// keep only the latest record per system (list is sorted newest first)
 	const latestBySystem = new Map<string, { system: string; g?: Record<string, GpuEntry> }>()
@@ -70,15 +46,20 @@ async function fetchClusterGpuStats(): Promise<ClusterGpuStats> {
 	let occupiedGpus = 0
 	let utilSum = 0
 	let vramSum = 0
-	for (const { system, g } of latestBySystem.values()) {
+	for (const { g } of latestBySystem.values()) {
 		const entries = Object.entries(g ?? {})
 		if (entries.length === 0) {
 			continue
 		}
 		servers++
-		for (const [index, gpu] of entries) {
+		for (const [, gpu] of entries) {
 			totalGpus++
-			if (occupiedKeys.has(`${system}:${index}`)) {
+			// "Occupied" means at least one real process is attributed to
+			// that GPU -- whether it's in a Docker/k8s container or running
+			// directly on the host -- not just "reports nonzero memory
+			// used" (idle GPUs still hold a small driver/reserved memory
+			// footprint, which made every GPU count as "occupied" before).
+			if (gpu.procs && gpu.procs.length > 0) {
 				occupiedGpus++
 			}
 			utilSum += gpu.u ?? 0
