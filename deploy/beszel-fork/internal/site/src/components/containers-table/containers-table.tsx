@@ -402,7 +402,10 @@ function ContainerSheet({
 								<span
 									className={cn(
 										"inline-block size-1.5 rounded-full shrink-0",
-										getServerDotColor($allSystemsById.get()[container.system]?.name ?? "")
+										getServerDotColor(
+											$allSystemsById.get()[container.system]?.name ?? "",
+											Object.values($allSystemsById.get()).map((s) => s.name)
+										)
 									)}
 								/>
 								{$allSystemsById.get()[container.system]?.name ?? ""}

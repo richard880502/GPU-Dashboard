@@ -17,14 +17,18 @@ export function cn(...inputs: ClassValue[]) {
 // single consistent (near-white) color -- a small fixed-color dot next to
 // the name is what tells servers apart, not the text itself, so text
 // legibility/hierarchy stays uniform across rows. Dot palette is cool
-// colors only (blue/teal/indigo/purple) -- green/yellow/red are reserved
-// for status and utilization meaning elsewhere in the UI, so a server's
-// "identity" color can never be confused for a status signal.
+// colors only (blues/teals/indigos/purples) -- green/yellow/red are
+// reserved for status and utilization meaning elsewhere in the UI, so a
+// server's "identity" color can never be confused for a status signal.
 const SERVER_DOT_COLORS = [
 	"bg-[#007aff] dark:bg-[#0a84ff]", // blue
 	"bg-[#30b0c7] dark:bg-[#64d2ff]", // teal
 	"bg-[#5856d6] dark:bg-[#5e5ce6]", // indigo
 	"bg-[#af52de] dark:bg-[#bf5af2]", // purple
+	"bg-[#0071a4] dark:bg-[#4bb4e6]", // steel blue
+	"bg-[#00a3a3] dark:bg-[#3ecfcf]", // dark teal
+	"bg-[#7c3aed] dark:bg-[#a78bfa]", // violet
+	"bg-[#4338ca] dark:bg-[#818cf8]", // deep indigo
 ] as const
 
 function hashName(name: string): number {
@@ -36,9 +40,20 @@ function hashName(name: string): number {
 	return Math.abs(hash)
 }
 
-/** Deterministic dot color per server name -- pair with a small rounded-full span. */
-export function getServerDotColor(name: string): string {
-	return SERVER_DOT_COLORS[hashName(name) % SERVER_DOT_COLORS.length]
+/**
+ * Deterministic dot color per server name. Takes every currently-known
+ * server name and assigns colors by sorted POSITION, not just a hash of
+ * this one name -- a name-only hash can (and did: wingene-79/82 both
+ * landed on "indigo") collide well before the palette is exhausted. As
+ * long as the number of servers doesn't exceed the palette size, this
+ * guarantees no two servers share a color; a bare hash is only the
+ * fallback for a name that isn't in the known set yet (e.g. still loading).
+ */
+export function getServerDotColor(name: string, allNames: Iterable<string>): string {
+	const sorted = Array.from(new Set(allNames)).sort()
+	const index = sorted.indexOf(name)
+	const i = index >= 0 ? index : hashName(name)
+	return SERVER_DOT_COLORS[i % SERVER_DOT_COLORS.length]
 }
 
 /** Adds event listener to node and returns function that removes the listener */

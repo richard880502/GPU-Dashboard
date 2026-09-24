@@ -227,7 +227,10 @@ export function GpuStatusTable() {
 											<span
 												className={cn(
 													"inline-block size-1.5 rounded-full shrink-0",
-													getServerDotColor(systems[row.systemId]?.name ?? row.systemId)
+													getServerDotColor(
+														systems[row.systemId]?.name ?? row.systemId,
+														Object.values(systems).map((s) => s.name)
+													)
 												)}
 											/>
 											{systems[row.systemId]?.name ?? row.systemId}

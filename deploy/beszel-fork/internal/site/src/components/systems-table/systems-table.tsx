@@ -493,7 +493,7 @@ const SystemTableRow = memo(
 				<TableRow
 					// data-state={row.getIsSelected() && "selected"}
 					className={cn("cursor-pointer transition-opacity relative safari:transform-3d", {
-						"opacity-50": system.status === SystemStatus.Paused,
+						"opacity-50": system.status === SystemStatus.Paused || system.status === SystemStatus.Down,
 					})}
 				>
 					{row.getVisibleCells().map((cell) => (

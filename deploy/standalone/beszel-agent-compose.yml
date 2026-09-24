@@ -6,11 +6,19 @@
 #   cd deploy/beszel-fork
 #   docker build -f internal/dockerfile_agent_nvidia -t beszel-agent-nvidia-fork:test .
 #
-# GPU_COLLECTOR=nvidia-smi is REQUIRED, not optional: Beszel's own NVML
-# collector silently drops GPU temperature on some hosts (an ignored NVML
-# return code -- see docs/beszel-integration-research.md), while nvidia-smi
-# was verified reliable on every host in this cluster. Don't remove this
-# override when redeploying.
+# GPU_COLLECTOR defaults to nvidia-smi, not optional on the amd64 fleet:
+# Beszel's own NVML collector silently drops GPU temperature on some hosts
+# (an ignored NVML return code -- see docs/beszel-integration-research.md),
+# while nvidia-smi was verified reliable on every amd64 host in this cluster.
+# Don't remove this default when redeploying those hosts.
+#
+# Exception: wingene-82 (GB10, unified memory) needs
+# GPU_COLLECTOR=nvml,nvidia-smi -- nvidia-smi's CLI output reports
+# memory.used/memory.total as "[N/A]" on this chip (no dedicated VRAM to
+# report), while NVML's nvmlDeviceGetMemoryInfo call works fine on it
+# (verified: matches nvitop-exporter's numbers). Override via
+# GPU_COLLECTOR=nvml,nvidia-smi ... docker compose -f beszel-agent-compose.yml
+# up -d on that host only.
 #
 # HUB_SSH_PUBLIC_KEY is the public key Beszel's hub generates for itself on
 # first start (readable from the hub container's data dir, or from the
@@ -34,7 +42,7 @@
 #     docker compose -f beszel-agent-compose.yml up -d
 services:
   beszel-agent:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.0.0
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.7.3
     container_name: beszel-agent
     restart: unless-stopped
     network_mode: host
@@ -52,7 +60,7 @@ services:
       - LISTEN=45876
       - HUB_URL=http://192.168.1.76:13000
       - KEY=${HUB_SSH_PUBLIC_KEY:?set HUB_SSH_PUBLIC_KEY}
-      - GPU_COLLECTOR=nvidia-smi
+      - GPU_COLLECTOR=${GPU_COLLECTOR:-nvidia-smi}
 
 volumes:
   beszel_agent_data:

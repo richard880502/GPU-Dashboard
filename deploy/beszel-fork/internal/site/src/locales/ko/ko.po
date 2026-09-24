@@ -1003,6 +1003,10 @@ msgstr "GPU"
 msgid "GPU Engines"
 msgstr "GPU 엔진들"
 
+#: src/components/containers-table/containers-table-columns.tsx
+msgid "GPU Mem"
+msgstr ""
+
 #: src/components/routes/system/charts/gpu-charts.tsx
 msgid "GPU Power Draw"
 msgstr "GPU 전원 사용량"
@@ -1010,6 +1014,10 @@ msgstr "GPU 전원 사용량"
 #: src/lib/alerts.ts
 msgid "GPU Usage"
 msgstr "GPU 사용량"
+
+#: src/components/containers-table/containers-table-columns.tsx
+msgid "GPU Util"
+msgstr ""
 
 #: src/components/routes/system/info-bar.tsx
 #: src/components/systems-table/systems-table.tsx
@@ -1493,6 +1501,10 @@ msgstr "지속성"
 #: src/components/routes/system/raw-capacity-label.tsx
 msgid "Physical device space. True usable capacity is unknown. Pool disk usage alerts are disabled."
 msgstr "물리적 장치 공간. 실제 사용 가능한 용량을 알 수 없습니다. 풀 디스크 사용량 알림이 비활성화되어 있습니다."
+
+#: src/components/containers-table/containers-table-columns.tsx
+msgid "PID"
+msgstr ""
 
 #: src/components/routes/settings/notifications.tsx
 msgid "Please <0>configure an SMTP server</0> to ensure alerts are delivered."

@@ -1,4 +1,4 @@
-//go:build amd64 && (windows || (linux && glibc))
+//go:build windows || (linux && glibc)
 
 package agent
 
@@ -11,6 +11,7 @@ import (
 
 	"github.com/ebitengine/purego"
 	"github.com/henrygd/beszel/internal/entities/system"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 // NVML constants and types
@@ -182,33 +183,42 @@ func (c *nvmlCollector) collect() {
 		var temp uint32
 		nvmlDeviceGetTemperature(device, 0, &temp) // 0 is NVML_TEMPERATURE_GPU
 
-		// Memory: only poll if GPU is active to avoid leaving D3cold state (#1522)
-		if utilization.Gpu > 0 {
-			var usedMem, totalMem uint64
-			if c.isV2 {
-				var memory nvmlMemoryV2
-				memory.Version = 0x02000028 // (2 << 24) | 40 bytes
-				if ret := nvmlDeviceGetMemoryInfo(device, uintptr(unsafe.Pointer(&memory))); ret != nvmlReturn(nvmlSuccess) {
-					slog.Debug("NVML: MemoryInfo_v2 failed", "bdf", bdf, "ret", ret)
-				} else {
-					usedMem = memory.Used
-					totalMem = memory.Total
-				}
+		// Memory: isGPUActive (real PCI runtime_status/power_state check, above)
+		// already guards against querying a suspended/D3cold GPU, so it's safe
+		// to always poll here. Gating this further on utilization>0 (as
+		// upstream once did for #1522) leaves memory stuck at stale/zero on
+		// unified-memory chips (e.g. GB10) that idle at 0% compute utilization
+		// while still holding resident memory.
+		var usedMem, totalMem uint64
+		if c.isV2 {
+			var memory nvmlMemoryV2
+			memory.Version = 0x02000028 // (2 << 24) | 40 bytes
+			if ret := nvmlDeviceGetMemoryInfo(device, uintptr(unsafe.Pointer(&memory))); ret != nvmlReturn(nvmlSuccess) {
+				slog.Debug("NVML: MemoryInfo_v2 failed", "bdf", bdf, "ret", ret)
 			} else {
-				var memory nvmlMemoryV1
-				if ret := nvmlDeviceGetMemoryInfo(device, uintptr(unsafe.Pointer(&memory))); ret != nvmlReturn(nvmlSuccess) {
-					slog.Debug("NVML: MemoryInfo failed", "bdf", bdf, "ret", ret)
-				} else {
-					usedMem = memory.Used
-					totalMem = memory.Total
-				}
-			}
-			if totalMem > 0 {
-				gpu.MemoryUsed = float64(usedMem) / 1024 / 1024 / mebibytesInAMegabyte
-				gpu.MemoryTotal = float64(totalMem) / 1024 / 1024 / mebibytesInAMegabyte
+				usedMem = memory.Used
+				totalMem = memory.Total
 			}
 		} else {
-			slog.Debug("NVML: Skipping memory info (utilization=0)", "bdf", bdf)
+			var memory nvmlMemoryV1
+			if ret := nvmlDeviceGetMemoryInfo(device, uintptr(unsafe.Pointer(&memory))); ret != nvmlReturn(nvmlSuccess) {
+				slog.Debug("NVML: MemoryInfo failed", "bdf", bdf, "ret", ret)
+			} else {
+				usedMem = memory.Used
+				totalMem = memory.Total
+			}
+		}
+		if totalMem > 0 {
+			gpu.MemoryUsed = float64(usedMem) / 1024 / 1024 / mebibytesInAMegabyte
+			gpu.MemoryTotal = float64(totalMem) / 1024 / 1024 / mebibytesInAMegabyte
+		} else if v, err := mem.VirtualMemory(); err == nil {
+			// Unified-memory chips (e.g. GB10) have no dedicated VRAM for NVML
+			// to report -- nvmlDeviceGetMemoryInfo returns NOT_SUPPORTED here,
+			// not just an nvidia-smi CLI display quirk. Fall back to host
+			// system RAM as the closest available approximation (this is the
+			// whole machine's shared memory pool, not GPU-exclusive usage).
+			gpu.MemoryTotal = float64(v.Total) / 1024 / 1024 / mebibytesInAMegabyte
+			gpu.MemoryUsed = float64(v.Used) / 1024 / 1024 / mebibytesInAMegabyte
 		}
 
 		// Power

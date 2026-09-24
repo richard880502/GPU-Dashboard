@@ -26,13 +26,14 @@ import { memo, useMemo, useRef, useState } from "react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 import { isReadOnlyUser, pb } from "@/lib/api"
 import { BatteryState, ConnectionType, connectionTypeLabels, MeterState, SystemStatus } from "@/lib/enums"
-import { $longestSystemName, $userSettings } from "@/lib/stores"
+import { $longestSystemName, $systems, $userSettings } from "@/lib/stores"
 import {
 	cn,
 	copyToClipboard,
 	decimalString,
 	formatBytes,
 	formatTemperature,
+	getServerDotColor,
 	parseSemVer,
 	secondsToUptimeString,
 } from "@/lib/utils"
@@ -139,12 +140,21 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 			cell: (info) => {
 				const { name, id } = info.row.original
 				const longestName = useStore($longestSystemName)
+				const allSystems = useStore($systems)
 				const linkUrl = getPagePath($router, "system", { id })
 
 				return (
 					<>
 						<span className="flex gap-2 items-center font-medium text-sm text-nowrap md:ps-1">
-							<IndicatorDot system={info.row.original} />
+							<span
+								className={cn(
+									"shrink-0 size-2 rounded-full",
+									getServerDotColor(
+										name,
+										allSystems.map((s) => s.name)
+									)
+								)}
+							/>
 							<Link
 								href={linkUrl}
 								tabIndex={-1}
