@@ -55,7 +55,9 @@
 #
 # HUB_URL defaults to this cluster's own hub (wingene-76). Pointing an
 # agent at a genuinely separate cluster's hub needs HUB_URL (and
-# HUB_SSH_PUBLIC_KEY, always required) overridden to that hub's own values.
+# HUB_SSH_PUBLIC_KEY, always required) overridden to that hub's own values:
+#   HUB_URL=http://<new hub host's IP>:13000 HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." \
+#     SMART_DEVICE_1=/dev/nvme0 docker compose -f beszel-agent-compose.yml up -d
 #
 # Usage:
 #   HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." SMART_DEVICE_1=/dev/nvme0 SMART_DEVICE_2=/dev/nvme1 \

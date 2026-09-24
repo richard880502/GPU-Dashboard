@@ -31,7 +31,13 @@
 # system joining this one) needs both overridden to that cluster's own
 # values -- APP_URL to the new hub host's own IP, ACCOUNT_EMAIL to whatever
 # you want (doesn't need to be reachable, just has to match consistently
-# between USER_EMAIL and AUTO_LOGIN, both driven by this one var here).
+# between USER_EMAIL and AUTO_LOGIN, both driven by this one var here):
+#   mkdir -p ../beszel/data && chmod 777 ../beszel/data
+#   APP_URL=http://<new hub host's IP>:13000 ACCOUNT_EMAIL=newcluster@internal.local \
+#     USER_PASSWORD=<pick a real password> docker compose -f beszel-hub-compose.yml up -d
+# Then fetch this new hub's own SSH public key (its data dir, or the "Add
+# system" dialog in its UI) -- beszel-agent-compose.yml on this cluster's
+# hosts needs HUB_URL and HUB_SSH_PUBLIC_KEY overridden to match.
 services:
   beszel-hub:
     image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.7.5
