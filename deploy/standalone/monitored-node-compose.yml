@@ -1,0 +1,96 @@
+# Full monitoring stack for one monitored GPU node -- beszel-agent plus the
+# two GPU-attribution exporters (nvitop-exporter, gpu-process-exporter),
+# combined into one file. Run this on every GPU server you want to add to
+# monitoring; the hub itself runs separately, once, via beszel-hub-compose.yml.
+#
+# Usage:
+#   HOSTNAME=wingene-XX HUB_URL=http://<hub host's IP>:13000 \
+#     HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." SMART_DEVICE_1=/dev/nvme0 \
+#     docker compose -f monitored-node-compose.yml up -d
+#
+# HUB_SSH_PUBLIC_KEY is the public key Beszel's hub generates for itself on
+# first start (readable from the hub container's data dir, or from the
+# "Add system" dialog in the Beszel UI) -- it's public key material, safe
+# to commit. Not filled in below because it doesn't exist until the hub
+# has started at least once.
+#
+# GPU_COLLECTOR defaults to nvidia-smi, not optional on amd64 hosts:
+# Beszel's own NVML collector silently drops GPU temperature on some hosts
+# (an ignored NVML return code -- see docs/beszel-integration-research.md).
+# Unified-memory arm64 chips (e.g. GB10) need GPU_COLLECTOR=nvml,nvidia-smi
+# instead -- nvidia-smi's CLI output can't report memory on those at all.
+#
+# SMART disk monitoring (https://beszel.dev/guide/smart-data) needs the
+# base controller device(s) passed through -- not partitions -- plus
+# SYS_RAWIO (SATA/ATA) and SYS_ADMIN (NVMe) capabilities. Device paths
+# differ per host -- check with `lsblk -d -o NAME,TYPE,SIZE,MODEL` first
+# (map the base name, e.g. nvme0, not nvme0n1) and set SMART_DEVICE_1/2
+# accordingly; leave SMART_DEVICE_2 unset (defaults to the same as _1, so
+# no duplicate) on single-drive hosts.
+#
+# For Kubernetes hosts (a k8s node's pods aren't visible on the Docker
+# socket at all): set CRI_SOCKET_PATH to the node's real containerd CRI
+# socket to surface those pods on the Containers page too, and get GPU
+# processes attributed to them instead of falling back to "host". If the
+# k8s node itself runs nested inside another Docker container (e.g. a
+# k3s-in-docker sandbox, so the socket can't be bind-mounted out and lives
+# in that container's own /run), also set CRI_EXEC_CONTAINER to that
+# container's name -- crictl then runs via the Docker Engine API's exec
+# endpoints instead. Leave both unset on plain-Docker hosts -- harmless
+# no-op. CRI_MOUNT_PATH additionally needs to match CRI_SOCKET_PATH so it
+# actually gets bind-mounted in, but only for the plain (non-exec) case.
+services:
+  beszel-agent:
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.7.4
+    container_name: beszel-agent
+    restart: unless-stopped
+    network_mode: host
+    gpus: all
+    cap_add:
+      - SYS_RAWIO
+      - SYS_ADMIN
+    devices:
+      - ${SMART_DEVICE_1:?set SMART_DEVICE_1, e.g. /dev/nvme0 (see lsblk -d)}:${SMART_DEVICE_1:?}
+      - ${SMART_DEVICE_2:-${SMART_DEVICE_1:?}}:${SMART_DEVICE_2:-${SMART_DEVICE_1:?}}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - beszel_agent_data:/var/lib/beszel-agent
+    environment:
+      - LISTEN=45876
+      - HUB_URL=${HUB_URL:?set HUB_URL, e.g. http://192.168.1.76:13000}
+      - KEY=${HUB_SSH_PUBLIC_KEY:?set HUB_SSH_PUBLIC_KEY}
+      - GPU_COLLECTOR=${GPU_COLLECTOR:-nvidia-smi}
+      - CRI_SOCKET_PATH=${CRI_SOCKET_PATH:-}
+      - CRI_EXEC_CONTAINER=${CRI_EXEC_CONTAINER:-}
+
+  nvitop-exporter:
+    image: ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.0.0
+    container_name: nvitop-exporter
+    restart: always
+    gpus: all
+    pid: host
+    volumes:
+      - /etc/passwd:/etc/passwd:ro
+    ports:
+      - "5051:5050"
+    command: ["--bind-address", "0.0.0.0", "--port", "5050", "--hostname", "${HOSTNAME:?set HOSTNAME}"]
+
+  gpu-process-exporter:
+    image: ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.2.0
+    container_name: gpu-process-exporter
+    restart: always
+    gpus: all
+    pid: host
+    environment:
+      - EXPORTER_HOSTNAME=${HOSTNAME:?set HOSTNAME}
+      - CRI_SOCKET_PATH=${CRI_SOCKET_PATH:-}
+      - CRI_EXEC_CONTAINER=${CRI_EXEC_CONTAINER:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/passwd:/etc/passwd:ro
+      - ${CRI_MOUNT_PATH:-/dev/null}:${CRI_MOUNT_PATH:-/dev/null}
+    ports:
+      - "5052:5052"
+
+volumes:
+  beszel_agent_data:
