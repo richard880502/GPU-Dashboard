@@ -74,7 +74,7 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 			return (
 				<div className="ms-1 flex items-center gap-1.5">
 					<span className={cn("inline-block size-1.5 rounded-full shrink-0", getServerDotColor(name))} />
-					<div className="relative w-fit max-w-40">
+					<div className="relative w-fit max-w-56">
 						<span className="invisible block whitespace-nowrap" aria-hidden="true">
 							{longestName.length > name.length ? longestName : name}
 						</span>
