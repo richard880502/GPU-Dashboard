@@ -76,7 +76,7 @@ services:
     command: ["--bind-address", "0.0.0.0", "--port", "5050", "--hostname", "${HOSTNAME:?set HOSTNAME}"]
 
   gpu-process-exporter:
-    image: ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.2.0
+    image: ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.3.0
     container_name: gpu-process-exporter
     restart: always
     gpus: all

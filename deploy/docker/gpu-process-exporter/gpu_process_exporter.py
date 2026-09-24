@@ -18,10 +18,18 @@ Some hosts run their whole k8s node nested inside another Docker container
 host -- there, the CRI socket lives in that container's own /run and can't
 be bind-mounted out normally. Set CRI_EXEC_CONTAINER to that container's
 name instead of bind-mounting: crictl then runs via `docker exec` into it
-(over the docker.sock already mounted here). That container also has its
-own PID namespace, so crictl's reported pids won't match nvidia-smi's
-host-namespace pids directly -- matched instead via /proc/<pid>/status's
-NSpid field, which lists a process's pid in each nested namespace level.
+(over the docker.sock already mounted here).
+
+Container attribution (Docker and CRI both) matches by container id
+parsed out of /proc/<pid>/cgroup, not by pid: crictl/the Docker API only
+ever report a container's own entrypoint pid, but a GPU-using pid is
+often a worker process that entrypoint forked after startup (e.g. vLLM's
+tensor-parallel workers) -- pid-based matching misses those entirely,
+since they never appear in either API's own pid field, even though they
+share their parent's cgroup and so still carry the right container id.
+A cgroup path can contain more than one 64-hex id (e.g. a k8s pod's
+cgroup nested inside CRI_EXEC_CONTAINER's own wrapping container), listed
+outermost-first -- the innermost (last) one is the actual container.
 """
 import json
 import os
@@ -77,53 +85,43 @@ def username_for_pid(pid):
         return str(uid)
 
 
-def nspids(pid):
-    """All pid-namespace-relative values for a host-visible pid, from
-    /proc/<pid>/status's NSpid line (host pid first, then each nested
-    namespace inward). A plain, non-nested process just has one entry
-    (itself). Lets a host pid (as seen with --pid host) be matched against
-    crictl's namespace-local pid when crictl runs inside a nested container
-    via CRI_EXEC_CONTAINER instead of directly on the host.
-    """
-    try:
-        with open(f"/proc/{pid}/status") as f:
-            for line in f:
-                if line.startswith("NSpid:"):
-                    return line.split()[1:]
-    except OSError:
-        pass
-    return [str(pid)]
-
-
-def container_name_for_pid(pid, docker_client, cri_pid_map):
+def container_name_for_pid(pid, docker_client, cri_map):
     try:
         with open(f"/proc/{pid}/cgroup") as f:
             content = f.read()
     except OSError:
         return "host"
-    match = CGROUP_ID_RE.search(content)
-    if match:
+    ids = CGROUP_ID_RE.findall(content)
+    if not ids:
+        return "host"
+    # Docker: try every id found (there's normally just one) against the
+    # Docker API.
+    for cid in ids:
         try:
-            return docker_client.containers.get(match.group(1)).name
+            return docker_client.containers.get(cid).name
         except docker.errors.NotFound:
-            pass
-    for candidate in nspids(pid):
-        if candidate in cri_pid_map:
-            return cri_pid_map[candidate]
+            continue
+    # CRI/k8s: match against crictl's container map. cgroup paths list
+    # outermost container first -- walk from the end so a pod nested
+    # inside CRI_EXEC_CONTAINER's own wrapping container resolves to the
+    # pod's own (innermost) id, not the wrapper's.
+    for cid in reversed(ids):
+        if cid in cri_map:
+            return cri_map[cid]
     return "host"
 
 
-def cri_pid_map(cri_socket, exec_container, docker_client):
-    """Maps pid -> "k8s:<namespace>/<pod>/<container>" for every container
-    currently known to containerd's CRI plugin, by shelling out to crictl
-    (a single static binary -- avoids hand-rolling a CRI gRPC/protobuf
-    client just for this). Rebuilt once per collection cycle, same as
-    gpu_uuid_index_map(), since crictl has no "give me just this PID" query.
+def cri_container_map(cri_socket, exec_container, docker_client):
+    """Maps container id -> "k8s:<namespace>/<pod>/<container>" for every
+    container currently known to containerd's CRI plugin, by shelling out
+    to crictl (a single static binary -- avoids hand-rolling a CRI
+    gRPC/protobuf client just for this). Rebuilt once per collection
+    cycle, same as gpu_uuid_index_map().
 
-    Keys are whatever pid crictl itself reports: the host's own pid
-    namespace when cri_socket is bind-mounted directly, or the exec
-    container's pid namespace when routed via CRI_EXEC_CONTAINER --
-    container_name_for_pid() tries both against nspids() either way.
+    Keyed by container id (matched directly against the id parsed out of
+    /proc/<pid>/cgroup) rather than pid -- see the module docstring for
+    why pid-based matching misses worker processes a container's
+    entrypoint forks after startup.
     """
     if not cri_socket:
         return {}
@@ -146,15 +144,13 @@ def cri_pid_map(cri_socket, exec_container, docker_client):
             data = json.loads(raw)
         except ValueError:
             continue
-        info = data.get("info", {})
-        pid = info.get("pid")
-        labels = info.get("config", {}).get("labels", {})
+        labels = data.get("info", {}).get("config", {}).get("labels", {})
         pod = labels.get("io.kubernetes.pod.name")
         container = labels.get("io.kubernetes.container.name")
-        if not pid or not pod or not container:
+        if not pod or not container:
             continue
         namespace = labels.get("io.kubernetes.pod.namespace", "default")
-        result[str(pid)] = f"k8s:{namespace}/{pod}/{container}"
+        result[container_id] = f"k8s:{namespace}/{pod}/{container}"
     return result
 
 
@@ -172,7 +168,7 @@ class GPUProcessContainerCollector:
             labels=["hostname", "index", "pid", "username", "uuid", "container_name"],
         )
         uuid2idx = gpu_uuid_index_map()
-        cri_map = cri_pid_map(self.cri_socket, self.cri_exec_container, self.docker_client)
+        cri_map = cri_container_map(self.cri_socket, self.cri_exec_container, self.docker_client)
         for uuid, pid in gpu_compute_apps():
             metric.add_metric(
                 [
