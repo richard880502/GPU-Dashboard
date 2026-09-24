@@ -172,7 +172,10 @@ export function GpuStatusTable() {
 			})
 		}
 		load()
-		const interval = setInterval(load, 30_000) // matches the hub's agent-poll interval
+		// matches the hub's actual agent-poll interval (UPDATE_INTERVAL_MS,
+		// possibly overridden from its 30s default) instead of a hardcoded
+		// value that would silently drift out of sync with it
+		const interval = setInterval(load, globalThis.BESZEL?.UPDATE_INTERVAL_MS || 30_000)
 		return () => {
 			cancelled = true
 			clearInterval(interval)

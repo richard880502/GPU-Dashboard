@@ -44,8 +44,11 @@ const (
 	sessionTimeout = 4 * time.Second
 )
 
-// interval is the update interval in milliseconds, read once at startup.
-var interval = func() int {
+// Interval is the update interval in milliseconds, read once at startup.
+// Exported so the hub's own HTTP layer (internal/hub/server.go) can expose
+// it to the frontend, which otherwise has no way to know it was overridden
+// via UPDATE_INTERVAL_MS and would poll on its own out-of-sync schedule.
+var Interval = func() int {
 	if v, ok := utils.GetEnv("UPDATE_INTERVAL_MS"); ok {
 		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
 			return ms
@@ -131,7 +134,7 @@ func (sm *SystemManager) Initialize() error {
 	// Start systems in background with staggered timing
 	go func() {
 		// Calculate staggered delay between system starts (max 2 seconds per system)
-		delta := interval / max(1, len(systems))
+		delta := Interval / max(1, len(systems))
 		delta = min(delta, 2_000)
 		sleepTime := time.Duration(delta) * time.Millisecond
 

@@ -40,7 +40,7 @@
 # hosts needs HUB_URL and HUB_SSH_PUBLIC_KEY overridden to match.
 services:
   beszel-hub:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.7.7
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.7.8
     container_name: beszel
     restart: unless-stopped
     # this host runs 100+ unrelated containers and has exhausted Docker's
@@ -52,6 +52,7 @@ services:
       - APP_URL=${APP_URL:-http://192.168.1.76:13000}
       - USER_EMAIL=${ACCOUNT_EMAIL:-wingene@internal.local}
       - USER_PASSWORD=${USER_PASSWORD:?set USER_PASSWORD (copy .env.example to .env first)}
+      - UPDATE_INTERVAL_MS=5000
     volumes:
       - ../beszel/data:/beszel_data
     ports:

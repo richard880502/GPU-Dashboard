@@ -7,6 +7,7 @@ declare global {
 		BASE_PATH: string
 		HUB_VERSION: string
 		HUB_URL: string
+		UPDATE_INTERVAL_MS: number
 		OAUTH_DISABLE_POPUP: boolean
 	}
 }

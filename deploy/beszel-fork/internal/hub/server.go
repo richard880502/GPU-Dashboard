@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/henrygd/beszel"
+	"github.com/henrygd/beszel/internal/hub/systems"
 	"github.com/henrygd/beszel/internal/hub/utils"
 )
 
@@ -14,6 +15,10 @@ type PublicAppInfo struct {
 	BASE_PATH           string
 	HUB_VERSION         string
 	HUB_URL             string
+	// gpu-monitoring fork addition (not upstream): lets the frontend poll on
+	// the same cadence as the hub's own agent-poll interval (UPDATE_INTERVAL_MS)
+	// instead of a hardcoded value that silently drifts out of sync with it.
+	UPDATE_INTERVAL_MS  int
 	OAUTH_DISABLE_POPUP bool `json:"OAUTH_DISABLE_POPUP,omitempty"`
 }
 
@@ -31,9 +36,10 @@ func modifyIndexHTML(hub *Hub, html []byte) string {
 func getPublicAppInfo(hub *Hub) PublicAppInfo {
 	parsedURL, _ := url.Parse(hub.appURL)
 	info := PublicAppInfo{
-		BASE_PATH:   strings.TrimSuffix(parsedURL.Path, "/") + "/",
-		HUB_VERSION: beszel.Version,
-		HUB_URL:     hub.appURL,
+		BASE_PATH:          strings.TrimSuffix(parsedURL.Path, "/") + "/",
+		HUB_VERSION:        beszel.Version,
+		HUB_URL:            hub.appURL,
+		UPDATE_INTERVAL_MS: systems.Interval,
 	}
 	if val, _ := utils.GetEnv("OAUTH_DISABLE_POPUP"); val == "true" {
 		info.OAUTH_DISABLE_POPUP = true

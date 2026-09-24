@@ -107,7 +107,7 @@ func (sys *System) StartUpdater() {
 		}
 	}
 
-	sys.updateTicker = time.NewTicker(time.Duration(interval) * time.Millisecond)
+	sys.updateTicker = time.NewTicker(time.Duration(Interval) * time.Millisecond)
 	// Go 1.23+ will automatically stop the ticker when the system is garbage collected, however we seem to need this or testing/synctest will block even if calling runtime.GC()
 	defer sys.updateTicker.Stop()
 
@@ -124,7 +124,7 @@ func (sys *System) StartUpdater() {
 			downChan = nil
 			_ = sys.setDown(nil)
 		case <-jitter:
-			sys.updateTicker.Reset(time.Duration(interval) * time.Millisecond)
+			sys.updateTicker.Reset(time.Duration(Interval) * time.Millisecond)
 			if err := sys.update(); err != nil {
 				_ = sys.setDown(err)
 			}
@@ -139,7 +139,7 @@ func (sys *System) update() error {
 		return nil
 	}
 	options := common.DataRequestOptions{
-		CacheTimeMs: uint16(interval),
+		CacheTimeMs: uint16(Interval),
 	}
 	// fetch system details if not already fetched
 	if !sys.detailsFetched.Load() {
@@ -1043,7 +1043,7 @@ func getJitter() <-chan time.Time {
 	minPercent := 51
 	maxPercent := 95
 	jitterRange := maxPercent - minPercent
-	msDelay := (interval * minPercent / 100) + rand.Intn(interval*jitterRange/100)
+	msDelay := (Interval * minPercent / 100) + rand.Intn(Interval*jitterRange/100)
 	return time.After(time.Duration(msDelay) * time.Millisecond)
 }
 
