@@ -6,6 +6,7 @@ package agent
 
 import (
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,7 @@ type Agent struct {
 	netIoStats                map[uint16]system.NetIoStats                          // Keeps track of bandwidth usage per cache interval
 	netInterfaceDeltaTrackers map[uint16]*deltatracker.DeltaTracker[string, uint64] // Per-cache-time NIC delta trackers
 	dockerManager             *dockerManager                                        // Manages Docker API requests
+	criCollector              *criCollector                                         // Manages CRI (Kubernetes) container requests; nil unless CRI_SOCKET_PATH is set
 	sensorConfig              *SensorConfig                                         // Sensors config
 	systemInfo                system.Info                                           // Host system info (dynamic)
 	systemDetails             system.Details                                        // Host system details (static, once-per-connection)
@@ -103,6 +105,14 @@ func NewAgent(dataDir ...string) (agent *Agent, err error) {
 
 	// initialize docker manager
 	agent.dockerManager = newDockerManager(agent)
+
+	// initialize CRI (Kubernetes) container collector -- nil (no-op) unless
+	// CRI_SOCKET_PATH is set
+	var dockerClientForCRI *http.Client
+	if agent.dockerManager != nil {
+		dockerClientForCRI = agent.dockerManager.client
+	}
+	agent.criCollector = newCRICollector(dockerClientForCRI)
 
 	// initialize system info
 	agent.refreshSystemDetails()
@@ -190,11 +200,16 @@ func (a *Agent) gatherStats(options common.DataRequestOptions) *system.CombinedD
 	if a.dockerManager != nil {
 		if containerStats, err := a.dockerManager.getDockerStats(cacheTimeMs); err == nil {
 			data.Containers = containerStats
-			applyContainerGPUStats(data.Containers)
-			slog.Debug("Containers", "data", data.Containers)
 		} else {
 			slog.Debug("Containers", "err", err)
 		}
+	}
+	if a.criCollector != nil {
+		data.Containers = append(data.Containers, a.criCollector.collect()...)
+	}
+	if data.Containers != nil {
+		applyContainerGPUStats(data.Containers)
+		slog.Debug("Containers", "data", data.Containers)
 	}
 
 	if a.monitorManager != nil {

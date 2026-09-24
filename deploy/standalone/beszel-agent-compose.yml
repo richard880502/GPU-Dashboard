@@ -37,12 +37,28 @@
 #   curl -X POST "$HUB_URL/api/beszel/smart/refresh?system=<system id>" \
 #     -H "Authorization: Bearer <token>"
 #
+# For hosts that also run Kubernetes (a k8s node's pods aren't visible on
+# the Docker socket at all): set CRI_SOCKET_PATH to the node's real
+# containerd CRI socket to surface those pods on the Containers page too
+# (CPU/memory/image/ports/uptime -- network and Docker-style health checks
+# aren't available at the CRI level, so those stay unset). If the k8s node
+# itself runs nested inside another Docker container (e.g. a k3s-in-docker
+# sandbox, so the socket can't be bind-mounted out and lives in that
+# container's own /run), also set CRI_EXEC_CONTAINER to that container's
+# name -- crictl then runs via the Docker Engine API's exec endpoints
+# instead (over the docker.sock already mounted below). See
+# deploy/docker/gpu-process-exporter/gpu_process_exporter.py, which uses
+# the exact same two env vars for GPU-process-to-pod attribution.
+#   CRI_SOCKET_PATH=/run/k3s/containerd/containerd.sock \
+#     CRI_EXEC_CONTAINER=sandbox-docker \
+#     HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." ... docker compose -f beszel-agent-compose.yml up -d
+#
 # Usage:
 #   HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." SMART_DEVICE_1=/dev/nvme0 SMART_DEVICE_2=/dev/nvme1 \
 #     docker compose -f beszel-agent-compose.yml up -d
 services:
   beszel-agent:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.7.3
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.7.4
     container_name: beszel-agent
     restart: unless-stopped
     network_mode: host
@@ -61,6 +77,8 @@ services:
       - HUB_URL=http://192.168.1.76:13000
       - KEY=${HUB_SSH_PUBLIC_KEY:?set HUB_SSH_PUBLIC_KEY}
       - GPU_COLLECTOR=${GPU_COLLECTOR:-nvidia-smi}
+      - CRI_SOCKET_PATH=${CRI_SOCKET_PATH:-}
+      - CRI_EXEC_CONTAINER=${CRI_EXEC_CONTAINER:-}
 
 volumes:
   beszel_agent_data:
