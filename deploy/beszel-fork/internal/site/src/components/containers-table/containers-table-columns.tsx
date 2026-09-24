@@ -56,6 +56,12 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	{
 		id: "system",
 		accessorFn: (record) => record.system,
+		// defaultColumn.size (100px, set on the table below) is too narrow for
+		// "wingene-XX"-style hostnames -- the inner max-w-56 cap a few lines
+		// down never even gets a chance to matter if the cell itself is
+		// already capped smaller than that.
+		size: 150,
+		minSize: 150,
 		sortingFn: (a, b) => {
 			const allSystems = $allSystemsById.get()
 			const systemNameA = allSystems[a.original.system]?.name ?? ""
