@@ -53,6 +53,10 @@
 #     CRI_EXEC_CONTAINER=sandbox-docker \
 #     HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." ... docker compose -f beszel-agent-compose.yml up -d
 #
+# HUB_URL defaults to this cluster's own hub (wingene-76). Pointing an
+# agent at a genuinely separate cluster's hub needs HUB_URL (and
+# HUB_SSH_PUBLIC_KEY, always required) overridden to that hub's own values.
+#
 # Usage:
 #   HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." SMART_DEVICE_1=/dev/nvme0 SMART_DEVICE_2=/dev/nvme1 \
 #     docker compose -f beszel-agent-compose.yml up -d
@@ -74,7 +78,7 @@ services:
       - beszel_agent_data:/var/lib/beszel-agent
     environment:
       - LISTEN=45876
-      - HUB_URL=http://192.168.1.76:13000
+      - HUB_URL=${HUB_URL:-http://192.168.1.76:13000}
       - KEY=${HUB_SSH_PUBLIC_KEY:?set HUB_SSH_PUBLIC_KEY}
       - GPU_COLLECTOR=${GPU_COLLECTOR:-nvidia-smi}
       - CRI_SOCKET_PATH=${CRI_SOCKET_PATH:-}
