@@ -40,7 +40,7 @@
 # hosts needs HUB_URL and HUB_SSH_PUBLIC_KEY overridden to match.
 services:
   beszel-hub:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.7.5
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.7.6
     container_name: beszel
     restart: unless-stopped
     # this host runs 100+ unrelated containers and has exhausted Docker's

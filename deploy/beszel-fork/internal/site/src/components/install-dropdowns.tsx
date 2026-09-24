@@ -22,13 +22,32 @@ const getScriptUrl = (path: string = "") => {
 	// return url.toString()
 }
 
+// gpu-monitoring fork addition: upstream's install snippets pointed at
+// henrygd/beszel-agent (no GPU support at all -- our GPU support comes
+// from this fork's own image, not the plain upstream binary/image). Point
+// these at our own GHCR image instead, with --gpus all so it can actually
+// see the GPU. GPU_COLLECTOR/SMART_DEVICE_1 are left as placeholders the
+// user fills in per host (device paths and unified-memory chips like GB10
+// vary per machine -- see deploy/standalone/monitored-node-compose.yml
+// for the full reference with SMART/CRI env vars too). Doesn't depend on
+// this repo's NFS-shared checkout at all -- copy/paste runs anywhere.
+const AGENT_IMAGE = "ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.7.4"
+
 export function copyDockerCompose(port = "45876", publicKey: string, token: string) {
 	copyToClipboard(`services:
   beszel-agent:
-    image: henrygd/beszel-agent
+    image: ${AGENT_IMAGE}
     container_name: beszel-agent
     restart: unless-stopped
     network_mode: host
+    gpus: all
+    # SMART disk monitoring: map the base device (not partition), e.g.
+    # /dev/nvme0, plus SYS_RAWIO (SATA/ATA) / SYS_ADMIN (NVMe) below.
+    # cap_add:
+    #   - SYS_RAWIO
+    #   - SYS_ADMIN
+    # devices:
+    #   - /dev/nvme0:/dev/nvme0
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./beszel_agent_data:/var/lib/beszel-agent
@@ -38,12 +57,15 @@ export function copyDockerCompose(port = "45876", publicKey: string, token: stri
       LISTEN: ${port}
       KEY: '${publicKey}'
       TOKEN: ${token}
-      HUB_URL: ${getHubURL()}`)
+      HUB_URL: ${getHubURL()}
+      # nvidia-smi is required, not NVML -- see docs/beszel-integration-research.md.
+      # Unified-memory arm64 chips (e.g. GB10) need GPU_COLLECTOR: nvml,nvidia-smi instead.
+      GPU_COLLECTOR: nvidia-smi`)
 }
 
 export function copyDockerRun(port = "45876", publicKey: string, token: string) {
 	copyToClipboard(
-		`docker run -d --name beszel-agent --network host --restart unless-stopped -v /var/run/docker.sock:/var/run/docker.sock:ro -v beszel_agent_data:/var/lib/beszel-agent -e KEY="${publicKey}" -e LISTEN=${port} -e TOKEN="${token}" -e HUB_URL="${getHubURL()}" henrygd/beszel-agent`
+		`docker run -d --name beszel-agent --network host --restart unless-stopped --gpus all -v /var/run/docker.sock:/var/run/docker.sock:ro -v beszel_agent_data:/var/lib/beszel-agent -e KEY="${publicKey}" -e LISTEN=${port} -e TOKEN="${token}" -e HUB_URL="${getHubURL()}" -e GPU_COLLECTOR=nvidia-smi ${AGENT_IMAGE}`
 	)
 }
 
