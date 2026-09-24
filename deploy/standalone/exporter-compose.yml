@@ -8,12 +8,25 @@
 #
 # For Kubernetes hosts (containers started via k8s aren't visible on the
 # Docker socket under the normal containerd/CRI-O runtime setup): also set
-# CRI_SOCKET_PATH to the node's real containerd CRI socket, e.g.
-#   CRI_SOCKET_PATH=/run/containerd/containerd.sock HOSTNAME=wingene-XX \
+# CRI_SOCKET_PATH to the node's real containerd CRI socket, and
+# CRI_MOUNT_PATH to the same value so it actually gets bind-mounted in, e.g.
+#   CRI_SOCKET_PATH=/run/containerd/containerd.sock \
+#     CRI_MOUNT_PATH=/run/containerd/containerd.sock HOSTNAME=wingene-XX \
 #     docker compose -f exporter-compose.yml up -d
 # gpu-process-exporter then attributes GPU processes it can't find on
 # Docker to their pod/container via crictl instead of falling back to
-# "host". Leave unset on plain-Docker hosts -- harmless no-op.
+# "host". Leave both unset on plain-Docker hosts -- harmless no-op.
+#
+# If the k8s node itself runs nested inside another Docker container (e.g.
+# a self-contained k3s-in-docker sandbox) rather than directly on this
+# host, its CRI socket lives in that container's own /run and can't be
+# bind-mounted out. Set CRI_EXEC_CONTAINER to that container's name instead
+# -- crictl then runs via `docker exec` into it -- and leave CRI_MOUNT_PATH
+# unset (CRI_SOCKET_PATH here is a path inside that container, not this
+# host, so there's nothing of ours to bind-mount):
+#   CRI_SOCKET_PATH=/run/k3s/containerd/containerd.sock \
+#     CRI_EXEC_CONTAINER=sandbox-docker HOSTNAME=wingene-XX \
+#     docker compose -f exporter-compose.yml up -d
 services:
   nvitop-exporter:
     image: ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.0.0
@@ -36,10 +49,11 @@ services:
     environment:
       - EXPORTER_HOSTNAME=${HOSTNAME:?set HOSTNAME}
       - CRI_SOCKET_PATH=${CRI_SOCKET_PATH:-}
+      - CRI_EXEC_CONTAINER=${CRI_EXEC_CONTAINER:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /etc/passwd:/etc/passwd:ro
-      - ${CRI_SOCKET_PATH:-/dev/null}:${CRI_SOCKET_PATH:-/dev/null}
+      - ${CRI_MOUNT_PATH:-/dev/null}:${CRI_MOUNT_PATH:-/dev/null}
     ports:
       - "5052:5052"
 

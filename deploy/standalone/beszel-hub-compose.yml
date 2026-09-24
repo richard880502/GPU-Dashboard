@@ -19,9 +19,14 @@
 # ignored -- AUTO_LOGIN alone is enough. AUTO_LOGIN doesn't need to be a
 # real, reachable email; it just has to match an existing account's email
 # field exactly (PocketBase's own user model, not a Beszel-specific thing).
+#
+# UPDATE_INTERVAL_MS optionally overrides how often (in milliseconds) the
+# hub polls each agent for fresh stats -- defaults to 30000 (30s, already
+# lowered from upstream's 60s default for fresher GPU/process data). Add
+# "- UPDATE_INTERVAL_MS=10000" etc. under environment below to change it.
 services:
   beszel-hub:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.7.3
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.7.4
     container_name: beszel
     restart: unless-stopped
     # this host runs 100+ unrelated containers and has exhausted Docker's

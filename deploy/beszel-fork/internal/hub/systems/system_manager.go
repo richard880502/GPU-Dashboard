@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/henrygd/beszel/internal/common"
 
 	"github.com/henrygd/beszel"
+	"github.com/henrygd/beszel/internal/hub/utils"
 
 	"github.com/blang/semver"
 	"github.com/pocketbase/dbx"
@@ -31,16 +33,26 @@ const (
 	paused  string = "paused"  // System monitoring is paused
 	pending string = "pending" // System is waiting on initial connection result
 
-	// interval is the default update interval in milliseconds (30 seconds --
-	// gpu-monitoring fork: lowered from upstream's 60s default for fresher
-	// GPU/process data; see agent/gpu_process_container.go's fetch-merge fix
-	// and 5s HTTP timeout, which keep the exporter scrapes from timing out
-	// at this cadence)
-	interval int = 30_000
+	// defaultInterval is the default update interval in milliseconds (30
+	// seconds -- gpu-monitoring fork: lowered from upstream's 60s default
+	// for fresher GPU/process data; see agent/gpu_process_container.go's
+	// fetch-merge fix and 5s HTTP timeout, which keep the exporter scrapes
+	// from timing out at this cadence). Overridable via UPDATE_INTERVAL_MS.
+	defaultInterval int = 30_000
 
 	// sessionTimeout is the maximum time to wait for SSH connections
 	sessionTimeout = 4 * time.Second
 )
+
+// interval is the update interval in milliseconds, read once at startup.
+var interval = func() int {
+	if v, ok := utils.GetEnv("UPDATE_INTERVAL_MS"); ok {
+		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
+			return ms
+		}
+	}
+	return defaultInterval
+}()
 
 // errSystemExists is returned when attempting to add a system that already exists
 var errSystemExists = errors.New("system exists")
