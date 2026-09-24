@@ -13,21 +13,18 @@ export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
 }
 
-// gpu-monitoring fork addition (not upstream): a fixed, deterministic
-// two-color gradient per server name, so rows from different servers are
-// easy to tell apart at a glance in tables that interleave multiple
-// servers (GPU Status by Server, Containers, Systems) -- same idea as the
-// systems-table's per-metric color coding, just keyed by hostname instead.
-// Apple system colors, matching the Liquid Glass theme; red/yellow
-// excluded since those already carry status/warning meaning elsewhere.
-const SERVER_NAME_GRADIENTS = [
-	"from-[#007aff] dark:from-[#0a84ff] to-[#5856d6] dark:to-[#5e5ce6]", // blue -> indigo
-	"from-[#34c759] dark:from-[#30d158] to-[#30b0c7] dark:to-[#64d2ff]", // green -> teal
-	"from-[#af52de] dark:from-[#bf5af2] to-[#ff2d55] dark:to-[#ff375f]", // purple -> pink
-	"from-[#ff9500] dark:from-[#ff9f0a] to-[#af52de] dark:to-[#bf5af2]", // orange -> purple
-	"from-[#5856d6] dark:from-[#5e5ce6] to-[#30b0c7] dark:to-[#64d2ff]", // indigo -> teal
-	"from-[#ff2d55] dark:from-[#ff375f] to-[#ff9500] dark:to-[#ff9f0a]", // pink -> orange
-	"from-[#30b0c7] dark:from-[#64d2ff] to-[#007aff] dark:to-[#0a84ff]", // teal -> blue
+// gpu-monitoring fork addition (not upstream): server names render in a
+// single consistent (near-white) color -- a small fixed-color dot next to
+// the name is what tells servers apart, not the text itself, so text
+// legibility/hierarchy stays uniform across rows. Dot palette is cool
+// colors only (blue/teal/indigo/purple) -- green/yellow/red are reserved
+// for status and utilization meaning elsewhere in the UI, so a server's
+// "identity" color can never be confused for a status signal.
+const SERVER_DOT_COLORS = [
+	"bg-[#007aff] dark:bg-[#0a84ff]", // blue
+	"bg-[#30b0c7] dark:bg-[#64d2ff]", // teal
+	"bg-[#5856d6] dark:bg-[#5e5ce6]", // indigo
+	"bg-[#af52de] dark:bg-[#bf5af2]", // purple
 ] as const
 
 function hashName(name: string): number {
@@ -39,14 +36,9 @@ function hashName(name: string): number {
 	return Math.abs(hash)
 }
 
-/** Gradient text classes (bg-clip-text) -- pair with `bg-gradient-to-r bg-clip-text text-transparent`. */
-export function getServerNameGradient(name: string): string {
-	return SERVER_NAME_GRADIENTS[hashName(name) % SERVER_NAME_GRADIENTS.length]
-}
-
-/** Full className for a server-name gradient-text span; just spread onto the element. */
-export function serverNameGradientClass(name: string): string {
-	return cn("bg-gradient-to-r bg-clip-text text-transparent", getServerNameGradient(name))
+/** Deterministic dot color per server name -- pair with a small rounded-full span. */
+export function getServerDotColor(name: string): string {
+	return SERVER_DOT_COLORS[hashName(name) % SERVER_DOT_COLORS.length]
 }
 
 /** Adds event listener to node and returns function that removes the listener */

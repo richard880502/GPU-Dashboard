@@ -8,7 +8,7 @@ import { pb } from "@/lib/api"
 import { $allSystemsById } from "@/lib/stores"
 import { MeterState } from "@/lib/enums"
 import type { GPUProcess } from "@/types"
-import { cn, decimalString, serverNameGradientClass } from "@/lib/utils"
+import { cn, decimalString, getServerDotColor } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { HashIcon } from "lucide-react"
 import { GpuIcon } from "./ui/icons"
@@ -40,10 +40,14 @@ function getMeterState(value: number, warn = 65, crit = 90): MeterState {
 	return value >= crit ? MeterState.Crit : value >= warn ? MeterState.Warn : MeterState.Good
 }
 
+// Warn/Crit slightly desaturated from Apple's pure systemYellow/systemRed
+// (100% saturation) so a long, high-value meter bar doesn't visually
+// outweigh the number next to it -- Good stays fully saturated since green
+// bars are rarely the ones running end-to-end across the row.
 const METER_COLORS = {
 	[MeterState.Good]: "bg-[#34c759] dark:bg-[#30d158]",
-	[MeterState.Warn]: "bg-[#ffcc00] dark:bg-[#ffd60a]",
-	[MeterState.Crit]: "bg-[#ff3b30] dark:bg-[#ff453a]",
+	[MeterState.Warn]: "bg-[hsl(45,82%,48%)] dark:bg-[hsl(45,88%,52%)]",
+	[MeterState.Crit]: "bg-[hsl(4,82%,55%)] dark:bg-[hsl(4,85%,58%)]",
 } as const
 
 function Meter({ value }: { value: number }) {
@@ -217,9 +221,15 @@ export function GpuStatusTable() {
 									<td className="py-2 px-2">
 										<Link
 											href={getPagePath($router, "system", { id: row.systemId })}
-											className={cn("hover:underline font-medium", serverNameGradientClass(systems[row.systemId]?.name ?? row.systemId))}
+											className="hover:underline font-medium inline-flex items-center gap-1.5"
 											onClick={(e) => e.stopPropagation()}
 										>
+											<span
+												className={cn(
+													"inline-block size-1.5 rounded-full shrink-0",
+													getServerDotColor(systems[row.systemId]?.name ?? row.systemId)
+												)}
+											/>
 											{systems[row.systemId]?.name ?? row.systemId}
 										</Link>
 									</td>

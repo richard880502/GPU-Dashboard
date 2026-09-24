@@ -35,7 +35,6 @@ import {
 	formatTemperature,
 	parseSemVer,
 	secondsToUptimeString,
-	serverNameGradientClass,
 } from "@/lib/utils"
 import { batteryStateTranslations } from "@/lib/i18n"
 import type { SystemRecord } from "@/types"
@@ -74,11 +73,14 @@ import {
 	BatteryFullIcon,
 } from "../ui/icons"
 
+// Down/Pending slightly desaturated from Apple's pure systemRed/systemYellow
+// (this map doubles as the CPU/memory/disk meter bar colors, where a long
+// high-value bar shouldn't visually outweigh the number next to it).
 const STATUS_COLORS = {
 	[SystemStatus.Up]: "bg-[#34c759] dark:bg-[#30d158]",
-	[SystemStatus.Down]: "bg-[#ff3b30] dark:bg-[#ff453a]",
+	[SystemStatus.Down]: "bg-[hsl(4,82%,55%)] dark:bg-[hsl(4,85%,58%)]",
 	[SystemStatus.Paused]: "bg-primary/40",
-	[SystemStatus.Pending]: "bg-[#ffcc00] dark:bg-[#ffd60a]",
+	[SystemStatus.Pending]: "bg-[hsl(45,82%,48%)] dark:bg-[hsl(45,88%,52%)]",
 } as const
 
 function getMeterStateByThresholds(value: number, warn = 65, crit = 90): MeterState {
@@ -165,7 +167,7 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 								<span className="invisible block" aria-hidden="true">
 									{longestName.length > name.length ? longestName : name}
 								</span>
-								<span className={cn("absolute inset-0 truncate", serverNameGradientClass(name))}>{name}</span>
+								<span className="absolute inset-0 truncate">{name}</span>
 							</Link>
 						</span>
 						<Link href={linkUrl} className="inset-0 absolute size-full" aria-label={name}></Link>

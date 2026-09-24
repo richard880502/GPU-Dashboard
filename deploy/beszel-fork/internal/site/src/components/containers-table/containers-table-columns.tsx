@@ -1,6 +1,6 @@
 import type { Column, ColumnDef } from "@tanstack/react-table"
 import { Button } from "@/components/ui/button"
-import { cn, decimalString, formatBytes, serverNameGradientClass, hourWithSeconds } from "@/lib/utils"
+import { cn, decimalString, formatBytes, getServerDotColor, hourWithSeconds } from "@/lib/utils"
 import type { ContainerRecord } from "@/types"
 import { ContainerHealth, ContainerHealthLabels } from "@/lib/enums"
 import {
@@ -72,11 +72,14 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 			const longestName = useStore($longestSystemName)
 			const name = allSystems[getValue() as string]?.name ?? ""
 			return (
-				<div className="ms-1 relative w-fit max-w-40">
-					<span className="invisible block whitespace-nowrap" aria-hidden="true">
-						{longestName.length > name.length ? longestName : name}
-					</span>
-					<span className={cn("absolute inset-0 truncate font-medium", serverNameGradientClass(name))}>{name}</span>
+				<div className="ms-1 flex items-center gap-1.5">
+					<span className={cn("inline-block size-1.5 rounded-full shrink-0", getServerDotColor(name))} />
+					<div className="relative w-fit max-w-40">
+						<span className="invisible block whitespace-nowrap" aria-hidden="true">
+							{longestName.length > name.length ? longestName : name}
+						</span>
+						<span className="absolute inset-0 truncate font-medium">{name}</span>
+					</div>
 				</div>
 			)
 		},

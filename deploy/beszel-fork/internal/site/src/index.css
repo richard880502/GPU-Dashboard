@@ -55,7 +55,10 @@
 	--secondary: hsl(240 3% 17% / 0.65);
 	--secondary-foreground: hsl(240 9% 96%);
 	--muted: hsl(240 3% 11% / 0.6);
-	--muted-foreground: hsl(240 2% 58%);
+	/* gpu-monitoring fork: brightened one step from hsl(240 2% 58%) so column
+	   headers / KPI labels read more clearly against the translucent glass
+	   surfaces, without changing values/page-title brightness -- ~#A5AAB6 */
+	--muted-foreground: hsl(222 10% 68%);
 	--accent: hsl(211 60% 22% / 0.6);
 	--accent-foreground: hsl(211 100% 70%);
 	--destructive: hsl(3 100% 61%);
