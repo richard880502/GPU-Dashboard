@@ -25,6 +25,13 @@
 # lowered from upstream's 60s default for fresher GPU/process data). Add
 # "- UPDATE_INTERVAL_MS=10000" etc. under environment below to change it.
 #
+# TZ sets the timezone the hub's own log output (docker logs) is printed
+# in -- makes correlating a live incident against wall-clock time much
+# easier than converting from UTC by hand. Doesn't affect what's stored in
+# the database: record timestamps (created/updated, system_stats, etc.)
+# stay UTC regardless, same as before -- that's deliberate (unambiguous,
+# and the frontend already renders them in the viewer's own local time).
+#
 # APP_URL and ACCOUNT_EMAIL default to this cluster's own values (wingene,
 # 192.168.1.76) so existing deployments work unchanged with no env vars
 # set. Spinning up a genuinely separate cluster (its own hub, not another
@@ -40,7 +47,7 @@
 # hosts needs HUB_URL and HUB_SSH_PUBLIC_KEY overridden to match.
 services:
   beszel-hub:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.7.9
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.7.10
     container_name: beszel
     restart: unless-stopped
     # this host runs 100+ unrelated containers and has exhausted Docker's
@@ -53,6 +60,7 @@ services:
       - USER_EMAIL=${ACCOUNT_EMAIL:-wingene@internal.local}
       - USER_PASSWORD=${USER_PASSWORD:?set USER_PASSWORD (copy .env.example to .env first)}
       - UPDATE_INTERVAL_MS=5000
+      - TZ=Asia/Taipei
     volumes:
       - ../beszel/data:/beszel_data
     ports:

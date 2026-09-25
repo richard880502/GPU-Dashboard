@@ -16,8 +16,13 @@ RUN apk add --no-cache \
 RUN update-ca-certificates
 
 # Build
+# gpu-monitoring fork addition (not upstream): -tags timetzdata embeds the
+# full IANA time zone database into the binary itself (~450KB) -- the final
+# image is FROM scratch (no OS, no /usr/share/zoneinfo at all), so without
+# this, time.LoadLocation (and therefore a TZ env var set on the container)
+# can't resolve any zone and silently falls back to UTC.
 ARG TARGETOS TARGETARCH
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags "-w -s" -o /beszel ./internal/cmd/hub
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags timetzdata -ldflags "-w -s" -o /beszel ./internal/cmd/hub
 
 # ? -------------------------
 FROM scratch
