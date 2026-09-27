@@ -214,6 +214,45 @@ func (c *criCollector) collect() []*container.Stats {
 	return result
 }
 
+// logs returns a CRI container's recent log output via `crictl logs`. The
+// container runtime's own log file is already demultiplexed plain text (no
+// Docker-style stream framing to undo), so this is far simpler than
+// dockerManager.getLogs -- same --tail cap and ANSI-stripping for a
+// consistent UI either way.
+func (c *criCollector) logs(containerID string) (string, error) {
+	out, err := c.run("logs", "--tail", strconv.Itoa(dockerLogsTail), containerID)
+	if err != nil {
+		return "", err
+	}
+	logContent := string(out)
+	if strings.Contains(logContent, "\x1b") {
+		logContent = ansiEscapePattern.ReplaceAllString(logContent, "")
+	}
+	return logContent, nil
+}
+
+// inspect returns crictl's own container detail JSON (a different shape from
+// Docker's, but the closest CRI equivalent), with any captured environment
+// variables stripped -- same rationale as dockerManager.getContainerInfo.
+// Best-effort: if the shape doesn't match what we expect, the raw JSON is
+// still returned rather than failing the request.
+func (c *criCollector) inspect(containerID string) ([]byte, error) {
+	out, err := c.run("inspect", "-o", "json", containerID)
+	if err != nil {
+		return nil, err
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return out, nil
+	}
+	if info, ok := parsed["info"].(map[string]any); ok {
+		if config, ok := info["config"].(map[string]any); ok {
+			delete(config, "envs")
+		}
+	}
+	return json.Marshal(parsed)
+}
+
 func formatCRIPorts(ports []criPort) string {
 	seen := make(map[int]struct{}, len(ports))
 	parts := make([]string, 0, len(ports))

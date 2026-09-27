@@ -48,6 +48,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   zfsutils-linux \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# crictl: talks to containerd's CRI socket for CRI_SOCKET_PATH hosts (see
+# beszel-agent-compose.yml) -- needed whenever crictl runs directly inside
+# this container (CRI_EXEC_CONTAINER unset), not just for the nested
+# k3s-in-docker case where it execs into another container that already has
+# its own copy. Same static-binary source gpu-process-exporter's Dockerfile
+# uses, arch-aware.
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+  && CRICTL_VERSION=v1.31.1 \
+  && curl -fsSL "https://github.com/kubernetes-sigs/cri-tools/releases/download/${CRICTL_VERSION}/crictl-${CRICTL_VERSION}-linux-${TARGETARCH}.tar.gz" \
+     | tar -xz -C /usr/local/bin \
+  && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+
 # Ensure data persistence across container recreations
 VOLUME ["/var/lib/beszel-agent"]
 

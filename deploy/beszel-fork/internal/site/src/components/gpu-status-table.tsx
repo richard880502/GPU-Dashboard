@@ -20,9 +20,11 @@ import { toast } from "./ui/use-toast"
 
 // Renders a process's container attribution readably instead of the raw
 // "host:<process>" / "k8s:<namespace>/<pod>/<container>" wire format. Real
-// Docker containers (the plain-name case) are clickable, drilling into the
-// same logs/detail Sheet the /containers page uses -- host and k8s-attributed
-// processes have no Docker container record to look up, so they stay plain.
+// Docker containers and k8s pods (agent/cri_containers.go writes the exact
+// same "k8s:<ns>/<pod>/<container>" string as this process's own `c` field,
+// so the same by-name lookup resolves both) are clickable, drilling into the
+// same logs/detail Sheet the /containers page uses -- "host" processes have
+// no container record at all to look up, so those stay plain text.
 function ProcessContainerLabel({
 	value,
 	systemId,
@@ -42,9 +44,14 @@ function ProcessContainerLabel({
 	if (value.startsWith("k8s:")) {
 		const [namespace, pod, container] = value.slice("k8s:".length).split("/")
 		return (
-			<span title={`${namespace}/${pod}/${container}`}>
+			<button
+				type="button"
+				title={`${namespace}/${pod}/${container}`}
+				className="hover:underline underline-offset-2 text-left"
+				onClick={() => onOpenContainer(systemId, value)}
+			>
 				<span className="text-muted-foreground">k8s:</span> {pod}
-			</span>
+			</button>
 		)
 	}
 	return (

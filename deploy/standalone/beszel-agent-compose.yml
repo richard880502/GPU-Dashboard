@@ -40,18 +40,31 @@
 # For hosts that also run Kubernetes (a k8s node's pods aren't visible on
 # the Docker socket at all): set CRI_SOCKET_PATH to the node's real
 # containerd CRI socket to surface those pods on the Containers page too
-# (CPU/memory/image/ports/uptime -- network and Docker-style health checks
-# aren't available at the CRI level, so those stay unset). If the k8s node
-# itself runs nested inside another Docker container (e.g. a k3s-in-docker
-# sandbox, so the socket can't be bind-mounted out and lives in that
-# container's own /run), also set CRI_EXEC_CONTAINER to that container's
-# name -- crictl then runs via the Docker Engine API's exec endpoints
-# instead (over the docker.sock already mounted below). See
-# deploy/docker/gpu-process-exporter/gpu_process_exporter.py, which uses
-# the exact same two env vars for GPU-process-to-pod attribution.
-#   CRI_SOCKET_PATH=/run/k3s/containerd/containerd.sock \
-#     CRI_EXEC_CONTAINER=sandbox-docker \
-#     HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." ... docker compose -f beszel-agent-compose.yml up -d
+# (CPU/memory/image/ports/uptime, plus -- since v2.7.5/v2.7.13 -- Logs and
+# Detail via the same crictl this image now ships; network and Docker-style
+# health checks still aren't available at the CRI level, so those stay
+# unset). See deploy/docker/gpu-process-exporter/gpu_process_exporter.py,
+# which uses the exact same two env vars for GPU-process-to-pod attribution.
+#
+# Two ways crictl reaches the socket, depending on the host:
+#
+# 1. Normal bare-metal/VM k8s node: bind-mount the real socket in (this
+#    image now bundles its own crictl binary, so nothing else is needed):
+#      CRI_SOCKET_PATH=/run/containerd/containerd.sock \
+#        HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." ... docker compose -f beszel-agent-compose.yml up -d
+#    and add a matching volume under volumes: below, e.g.
+#      - /run/containerd/containerd.sock:/run/containerd/containerd.sock
+#
+# 2. k8s node running nested inside another Docker container (e.g. a
+#    k3s-in-docker sandbox), where the socket lives in that container's own
+#    /run and can't be bind-mounted out: set CRI_EXEC_CONTAINER to that
+#    container's name instead -- crictl then runs via the Docker Engine
+#    API's exec endpoints (over the docker.sock already mounted below),
+#    using whatever crictl already exists inside that container, not this
+#    image's own copy:
+#      CRI_SOCKET_PATH=/run/k3s/containerd/containerd.sock \
+#        CRI_EXEC_CONTAINER=sandbox-docker \
+#        HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." ... docker compose -f beszel-agent-compose.yml up -d
 #
 # HUB_URL defaults to this cluster's own hub (wingene-76). Pointing an
 # agent at a genuinely separate cluster's hub needs HUB_URL (and
@@ -64,7 +77,7 @@
 #     docker compose -f beszel-agent-compose.yml up -d
 services:
   beszel-agent:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.7.4
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.7.5
     container_name: beszel-agent
     restart: unless-stopped
     network_mode: host
@@ -78,6 +91,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - beszel_agent_data:/var/lib/beszel-agent
+      # Direct (non-nested) CRI_SOCKET_PATH hosts need this too, matching
+      # whatever path CRI_SOCKET_PATH is set to -- see the comment above.
+      # - /run/containerd/containerd.sock:/run/containerd/containerd.sock
     environment:
       - LISTEN=45876
       - HUB_URL=${HUB_URL:-http://192.168.1.76:13000}

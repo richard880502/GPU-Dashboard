@@ -41,7 +41,7 @@
 # actually gets bind-mounted in, but only for the plain (non-exec) case.
 services:
   beszel-agent:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.7.4
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.7.5
     container_name: beszel-agent
     restart: unless-stopped
     network_mode: host
@@ -55,6 +55,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - beszel_agent_data:/var/lib/beszel-agent
+      # Same CRI_MOUNT_PATH bind as gpu-process-exporter below -- this was
+      # previously missing here, so beszel-agent's own Logs/Detail (and,
+      # before v2.7.5, its Containers-page stats) silently couldn't reach a
+      # direct (non-exec) CRI socket even when gpu-process-exporter could.
+      - ${CRI_MOUNT_PATH:-/dev/null}:${CRI_MOUNT_PATH:-/dev/null}
     environment:
       - LISTEN=45876
       - HUB_URL=${HUB_URL:?set HUB_URL, e.g. http://192.168.1.76:13000}

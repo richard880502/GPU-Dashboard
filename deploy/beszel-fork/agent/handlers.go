@@ -118,22 +118,34 @@ func (h *CheckFingerprintHandler) Handle(hctx *HandlerContext) error {
 type GetContainerLogsHandler struct{}
 
 func (h *GetContainerLogsHandler) Handle(hctx *HandlerContext) error {
-	if hctx.Agent.dockerManager == nil {
-		return hctx.SendResponse("", hctx.RequestID)
-	}
-
 	var req common.ContainerLogsRequest
 	if err := cbor.Unmarshal(hctx.Request.Data, &req); err != nil {
 		return err
 	}
 
-	ctx := context.Background()
-	logContent, err := hctx.Agent.dockerManager.getLogs(ctx, req.ContainerID)
-	if err != nil {
-		return err
+	// Try Docker first, then fall back to CRI (crictl) -- covers both a
+	// CRI-only container id (Docker legitimately doesn't know it) and a
+	// Docker-only host (dockerManager is nil). Only propagates an error once
+	// no remaining backend could serve the request.
+	var lastErr error
+	if hctx.Agent.dockerManager != nil {
+		logContent, err := hctx.Agent.dockerManager.getLogs(context.Background(), req.ContainerID)
+		if err == nil {
+			return hctx.SendResponse(logContent, hctx.RequestID)
+		}
+		lastErr = err
 	}
-
-	return hctx.SendResponse(logContent, hctx.RequestID)
+	if hctx.Agent.criCollector != nil {
+		logContent, err := hctx.Agent.criCollector.logs(req.ContainerID)
+		if err == nil {
+			return hctx.SendResponse(logContent, hctx.RequestID)
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return hctx.SendResponse("", hctx.RequestID)
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -143,22 +155,31 @@ func (h *GetContainerLogsHandler) Handle(hctx *HandlerContext) error {
 type GetContainerInfoHandler struct{}
 
 func (h *GetContainerInfoHandler) Handle(hctx *HandlerContext) error {
-	if hctx.Agent.dockerManager == nil {
-		return hctx.SendResponse("", hctx.RequestID)
-	}
-
 	var req common.ContainerInfoRequest
 	if err := cbor.Unmarshal(hctx.Request.Data, &req); err != nil {
 		return err
 	}
 
-	ctx := context.Background()
-	info, err := hctx.Agent.dockerManager.getContainerInfo(ctx, req.ContainerID)
-	if err != nil {
-		return err
+	// Same Docker-then-CRI fallback as GetContainerLogsHandler.
+	var lastErr error
+	if hctx.Agent.dockerManager != nil {
+		info, err := hctx.Agent.dockerManager.getContainerInfo(context.Background(), req.ContainerID)
+		if err == nil {
+			return hctx.SendResponse(string(info), hctx.RequestID)
+		}
+		lastErr = err
 	}
-
-	return hctx.SendResponse(string(info), hctx.RequestID)
+	if hctx.Agent.criCollector != nil {
+		info, err := hctx.Agent.criCollector.inspect(req.ContainerID)
+		if err == nil {
+			return hctx.SendResponse(string(info), hctx.RequestID)
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return hctx.SendResponse("", hctx.RequestID)
 }
 
 ////////////////////////////////////////////////////////////////////////////
