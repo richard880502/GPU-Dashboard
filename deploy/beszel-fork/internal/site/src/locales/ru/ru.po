@@ -446,6 +446,10 @@ msgid "Clear matches"
 msgstr "Очистить совпадения"
 
 #: src/components/containers-table/containers-table.tsx
+msgid "Clear search"
+msgstr ""
+
+#: src/components/containers-table/containers-table.tsx
 msgid "Click on a container to view more information."
 msgstr "Нажмите на контейнер для просмотра дополнительной информации."
 
@@ -1325,6 +1329,10 @@ msgstr "Сетевой трафик публичных интерфейсов"
 msgid "Network unit"
 msgstr "Единицы измерения скорости сети"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Next match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
@@ -1579,6 +1587,10 @@ msgstr "Использование по времени"
 msgid "Preferred Language"
 msgstr "Предпочтительный язык"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Previous match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 msgid "Process started"
 msgstr "Процесс запущен"
@@ -1755,6 +1767,10 @@ msgstr "Поиск"
 #: src/components/command-palette.tsx
 msgid "Search for systems or settings..."
 msgstr "Поиск систем или настроек..."
+
+#: src/components/containers-table/containers-table.tsx
+msgid "Search logs..."
+msgstr ""
 
 #: src/components/network-monitors-table/monitor-dialog.tsx
 #: src/components/network-monitors-table/monitor-dialog.tsx

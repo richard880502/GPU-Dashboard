@@ -446,6 +446,10 @@ msgid "Clear matches"
 msgstr "Tøm treff"
 
 #: src/components/containers-table/containers-table.tsx
+msgid "Clear search"
+msgstr ""
+
+#: src/components/containers-table/containers-table.tsx
 msgid "Click on a container to view more information."
 msgstr "Klikk på en container for å se mer informasjon."
 
@@ -1325,6 +1329,10 @@ msgstr "Nettverkstrafikk av eksterne nettverksgrensesnitt"
 msgid "Network unit"
 msgstr "Nettverksenhet"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Next match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
@@ -1579,6 +1587,10 @@ msgstr "Nøyaktig utnyttelse på registrert tidspunkt"
 msgid "Preferred Language"
 msgstr "Foretrukket Språk"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Previous match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 msgid "Process started"
 msgstr "Prosess startet"
@@ -1755,6 +1767,10 @@ msgstr "Søk"
 #: src/components/command-palette.tsx
 msgid "Search for systems or settings..."
 msgstr "Søk etter systemer eller innstillinger..."
+
+#: src/components/containers-table/containers-table.tsx
+msgid "Search logs..."
+msgstr ""
 
 #: src/components/network-monitors-table/monitor-dialog.tsx
 #: src/components/network-monitors-table/monitor-dialog.tsx

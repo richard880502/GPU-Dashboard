@@ -446,6 +446,10 @@ msgid "Clear matches"
 msgstr "Overeenkomsten wissen"
 
 #: src/components/containers-table/containers-table.tsx
+msgid "Clear search"
+msgstr ""
+
+#: src/components/containers-table/containers-table.tsx
 msgid "Click on a container to view more information."
 msgstr "Klik op een container om meer informatie te zien."
 
@@ -1325,6 +1329,10 @@ msgstr "Netwerkverkeer van publieke interfaces"
 msgid "Network unit"
 msgstr "Netwerk eenheid"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Next match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
@@ -1579,6 +1587,10 @@ msgstr "Nauwkeurig gebruik op de opgenomen tijd"
 msgid "Preferred Language"
 msgstr "Voorkeurstaal"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Previous match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 msgid "Process started"
 msgstr "Proces gestart"
@@ -1755,6 +1767,10 @@ msgstr "Zoeken"
 #: src/components/command-palette.tsx
 msgid "Search for systems or settings..."
 msgstr "Zoek naar systemen of instellingen..."
+
+#: src/components/containers-table/containers-table.tsx
+msgid "Search logs..."
+msgstr ""
 
 #: src/components/network-monitors-table/monitor-dialog.tsx
 #: src/components/network-monitors-table/monitor-dialog.tsx

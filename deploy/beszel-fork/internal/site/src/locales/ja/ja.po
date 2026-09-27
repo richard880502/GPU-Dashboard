@@ -446,6 +446,10 @@ msgid "Clear matches"
 msgstr "一致をクリア"
 
 #: src/components/containers-table/containers-table.tsx
+msgid "Clear search"
+msgstr ""
+
+#: src/components/containers-table/containers-table.tsx
 msgid "Click on a container to view more information."
 msgstr "詳細情報を表示するにはコンテナをクリックしてください。"
 
@@ -1325,6 +1329,10 @@ msgstr "パブリックインターフェースのネットワークトラフィ
 msgid "Network unit"
 msgstr "ネットワーク単位"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Next match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
@@ -1579,6 +1587,10 @@ msgstr "記録された時点での正確な利用"
 msgid "Preferred Language"
 msgstr "優先言語"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Previous match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 msgid "Process started"
 msgstr "プロセス開始"
@@ -1755,6 +1767,10 @@ msgstr "検索"
 #: src/components/command-palette.tsx
 msgid "Search for systems or settings..."
 msgstr "システムまたは設定を検索..."
+
+#: src/components/containers-table/containers-table.tsx
+msgid "Search logs..."
+msgstr ""
 
 #: src/components/network-monitors-table/monitor-dialog.tsx
 #: src/components/network-monitors-table/monitor-dialog.tsx

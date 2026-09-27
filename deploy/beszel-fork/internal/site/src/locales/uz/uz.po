@@ -446,6 +446,10 @@ msgid "Clear matches"
 msgstr "Mosliklarni tozalash"
 
 #: src/components/containers-table/containers-table.tsx
+msgid "Clear search"
+msgstr ""
+
+#: src/components/containers-table/containers-table.tsx
 msgid "Click on a container to view more information."
 msgstr "Batafsil ma'lumot uchun konteynerni bosing."
 
@@ -1325,6 +1329,10 @@ msgstr "Ommaviy interfeyslarning tarmoq trafigi"
 msgid "Network unit"
 msgstr "Tarmoq birligi"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Next match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
@@ -1579,6 +1587,10 @@ msgstr "Qayd etilgan vaqtdagi aniq yuklanish"
 msgid "Preferred Language"
 msgstr "Afzal til"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Previous match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 msgid "Process started"
 msgstr "Jarayon boshlandi"
@@ -1755,6 +1767,10 @@ msgstr "Qidirish"
 #: src/components/command-palette.tsx
 msgid "Search for systems or settings..."
 msgstr "Tizimlar yoki sozlamalarni qidiring..."
+
+#: src/components/containers-table/containers-table.tsx
+msgid "Search logs..."
+msgstr ""
 
 #: src/components/network-monitors-table/monitor-dialog.tsx
 #: src/components/network-monitors-table/monitor-dialog.tsx

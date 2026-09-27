@@ -446,6 +446,10 @@ msgid "Clear matches"
 msgstr "Cancella corrispondenze"
 
 #: src/components/containers-table/containers-table.tsx
+msgid "Clear search"
+msgstr ""
+
+#: src/components/containers-table/containers-table.tsx
 msgid "Click on a container to view more information."
 msgstr "Fare clic su un contenitore per visualizzare ulteriori informazioni."
 
@@ -1325,6 +1329,10 @@ msgstr "Traffico di rete delle interfacce pubbliche"
 msgid "Network unit"
 msgstr "Unità rete"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Next match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
@@ -1579,6 +1587,10 @@ msgstr "Utilizzo preciso al momento registrato"
 msgid "Preferred Language"
 msgstr "Lingua Preferita"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Previous match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 msgid "Process started"
 msgstr "Processo avviato"
@@ -1755,6 +1767,10 @@ msgstr "Cerca"
 #: src/components/command-palette.tsx
 msgid "Search for systems or settings..."
 msgstr "Cerca sistemi o impostazioni..."
+
+#: src/components/containers-table/containers-table.tsx
+msgid "Search logs..."
+msgstr ""
 
 #: src/components/network-monitors-table/monitor-dialog.tsx
 #: src/components/network-monitors-table/monitor-dialog.tsx

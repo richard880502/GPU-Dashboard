@@ -14,7 +14,7 @@ import {
 	type VisibilityState,
 } from "@tanstack/react-table"
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
-import { memo, type RefObject, useEffect, useRef, useState } from "react"
+import { memo, type RefObject, useEffect, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { pb } from "@/lib/api"
@@ -27,7 +27,7 @@ import { Sheet, SheetTitle, SheetHeader, SheetContent, SheetDescription } from "
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog"
 import { Button } from "@/components/ui/button"
 import { $allSystemsById } from "@/lib/stores"
-import { LoaderCircleIcon, MaximizeIcon, RefreshCwIcon, XIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon, MaximizeIcon, RefreshCwIcon, XIcon } from "lucide-react"
 import { Separator } from "../ui/separator"
 import { $router, Link } from "../router"
 import { listenKeys } from "nanostores"
@@ -273,20 +273,120 @@ const AllContainersTable = memo(function AllContainersTable({
 	)
 })
 
-async function getLogsHtml(container: ContainerRecord): Promise<string> {
+// Returns both the shiki-highlighted HTML (the default view) and the raw
+// text (kept around so a search can run over real log content instead of
+// shiki's generated markup).
+async function getLogs(container: ContainerRecord): Promise<{ html: string; raw: string }> {
 	try {
-		const [{ highlighter }, logsHtml] = await Promise.all([
+		const [{ highlighter }, logsResp] = await Promise.all([
 			import("@/lib/shiki"),
 			pb.send<{ logs: string }>("/api/beszel/containers/logs", {
 				system: container.system,
 				container: container.id,
 			}),
 		])
-		return logsHtml.logs ? highlighter.codeToHtml(logsHtml.logs, { lang: "log", theme: syntaxTheme }) : t`No results.`
+		const raw = logsResp.logs ?? ""
+		const html = raw ? highlighter.codeToHtml(raw, { lang: "log", theme: syntaxTheme }) : t`No results.`
+		return { html, raw }
 	} catch (error) {
 		console.error(error)
-		return ""
+		return { html: "", raw: "" }
 	}
+}
+
+function escapeHtml(s: string): string {
+	return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string)
+}
+
+function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+// Renders raw log text (not shiki's markup -- searching that would mean
+// matching against syntax-highlighting <span> tags) as escaped, whitespace-
+// preserving HTML with every case-insensitive match of `query` wrapped in a
+// <mark>, the `activeIndex`-th one flagged so callers can scroll to it.
+function highlightLogMatches(raw: string, query: string, activeIndex: number): { html: string; count: number } {
+	const matches = raw.match(new RegExp(escapeRegExp(query), "gi"))
+	if (!matches) {
+		return { html: escapeHtml(raw), count: 0 }
+	}
+	const parts = raw.split(new RegExp(escapeRegExp(query), "gi"))
+	let html = ""
+	parts.forEach((part, i) => {
+		html += escapeHtml(part)
+		if (i < matches.length) {
+			const current = i === activeIndex
+			html += `<mark class="rounded-sm px-0.5 ${
+				current ? "log-match-current bg-orange-400 text-black" : "bg-yellow-400/60 text-black"
+			}">${escapeHtml(matches[i])}</mark>`
+		}
+	})
+	return { html, count: matches.length }
+}
+
+function LogSearchBar({
+	search,
+	setSearch,
+	matchCount,
+	activeMatch,
+	onNavigate,
+}: {
+	search: string
+	setSearch: (value: string) => void
+	matchCount: number
+	activeMatch: number
+	onNavigate: (dir: 1 | -1) => void
+}) {
+	return (
+		<div className="relative flex-1 max-w-64 flex items-center gap-1 min-w-0">
+			<Input
+				value={search}
+				onChange={(e) => setSearch(e.target.value)}
+				onKeyDown={(e) => {
+					if (e.key === "Enter") {
+						e.preventDefault()
+						onNavigate(e.shiftKey ? -1 : 1)
+					}
+				}}
+				placeholder={t`Search logs...`}
+				className="h-8 pe-7"
+			/>
+			{search && (
+				<button
+					type="button"
+					onClick={() => setSearch("")}
+					className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100"
+					aria-label={t`Clear search`}
+				>
+					<XIcon className="size-3.5" />
+				</button>
+			)}
+			{search.trim() && (
+				<div className="flex items-center gap-0.5 text-xs text-muted-foreground tabular-nums shrink-0">
+					<button
+						type="button"
+						onClick={() => onNavigate(-1)}
+						disabled={matchCount === 0}
+						className="p-1 opacity-70 hover:opacity-100 disabled:opacity-30"
+						aria-label={t`Previous match`}
+					>
+						<ChevronUpIcon className="size-3.5" />
+					</button>
+					<button
+						type="button"
+						onClick={() => onNavigate(1)}
+						disabled={matchCount === 0}
+						className="p-1 opacity-70 hover:opacity-100 disabled:opacity-30"
+						aria-label={t`Next match`}
+					>
+						<ChevronDownIcon className="size-3.5" />
+					</button>
+					<span className="min-w-11 text-center">{matchCount ? `${activeMatch + 1}/${matchCount}` : "0/0"}</span>
+				</div>
+			)}
+		</div>
+	)
 }
 
 async function getInfoHtml(container: ContainerRecord): Promise<{ html: string; pid?: number }> {
@@ -321,7 +421,10 @@ export function ContainerSheet({
 	setSheetOpen: (open: boolean) => void
 	activeContainer: RefObject<ContainerRecord | null>
 }) {
-	const [logsDisplay, setLogsDisplay] = useState<string>("")
+	const [logsHtml, setLogsHtml] = useState<string>("")
+	const [logsRaw, setLogsRaw] = useState<string>("")
+	const [logsSearch, setLogsSearch] = useState<string>("")
+	const [activeMatch, setActiveMatch] = useState<number>(0)
 	const [infoDisplay, setInfoDisplay] = useState<string>("")
 	const [pid, setPid] = useState<number | undefined>(undefined)
 	const [logsFullscreenOpen, setLogsFullscreenOpen] = useState<boolean>(false)
@@ -331,11 +434,32 @@ export function ContainerSheet({
 
 	const container = activeContainer.current
 
+	const { html: searchHtml, count: matchCount } = useMemo(
+		() => (logsSearch.trim() ? highlightLogMatches(logsRaw, logsSearch.trim(), activeMatch) : { html: "", count: 0 }),
+		[logsRaw, logsSearch, activeMatch]
+	)
+	const logsDisplay = logsSearch.trim() ? searchHtml : logsHtml
+
+	const navigateMatch = (dir: 1 | -1) => {
+		setActiveMatch((i) => (matchCount ? (i + dir + matchCount) % matchCount : 0))
+	}
+
 	function scrollLogsToBottom() {
 		if (logsContainerRef.current) {
 			logsContainerRef.current.scrollTo({ top: logsContainerRef.current.scrollHeight })
 		}
 	}
+
+	// While a search is active, follow the current match instead of pinning
+	// to the bottom of the log.
+	useEffect(() => {
+		if (!logsSearch.trim()) return
+		logsContainerRef.current?.querySelector(".log-match-current")?.scrollIntoView({ block: "center" })
+	}, [logsDisplay, logsSearch])
+
+	useEffect(() => {
+		setActiveMatch(0)
+	}, [logsSearch])
 
 	const refreshLogs = async () => {
 		if (!container) return
@@ -343,9 +467,12 @@ export function ContainerSheet({
 		const startTime = Date.now()
 
 		try {
-			const logsHtml = await getLogsHtml(container)
-			setLogsDisplay(logsHtml)
-			setTimeout(scrollLogsToBottom, 20)
+			const logs = await getLogs(container)
+			setLogsHtml(logs.html)
+			setLogsRaw(logs.raw)
+			if (!logsSearch.trim()) {
+				setTimeout(scrollLogsToBottom, 20)
+			}
 		} catch (error) {
 			console.error(error)
 		} finally {
@@ -359,13 +486,16 @@ export function ContainerSheet({
 	}
 
 	useEffect(() => {
-		setLogsDisplay("")
+		setLogsHtml("")
+		setLogsRaw("")
+		setLogsSearch("")
 		setInfoDisplay("")
 		setPid(undefined)
 		if (!container) return
 		;(async () => {
-			const [logsHtml, info] = await Promise.all([getLogsHtml(container), getInfoHtml(container)])
-			setLogsDisplay(logsHtml)
+			const [logs, info] = await Promise.all([getLogs(container), getInfoHtml(container)])
+			setLogsHtml(logs.html)
+			setLogsRaw(logs.raw)
 			setInfoDisplay(info.html)
 			setPid(info.pid)
 			setTimeout(scrollLogsToBottom, 20)
@@ -383,6 +513,11 @@ export function ContainerSheet({
 				containerName={container.name}
 				onRefresh={refreshLogs}
 				isRefreshing={isRefreshingLogs}
+				search={logsSearch}
+				setSearch={setLogsSearch}
+				matchCount={matchCount}
+				activeMatch={activeMatch}
+				onNavigate={navigateMatch}
 			/>
 			<InfoFullscreenDialog
 				open={infoFullscreenOpen}
@@ -433,8 +568,15 @@ export function ContainerSheet({
 						</SheetDescription>
 					</SheetHeader>
 					<div className="px-3 pb-3 -mt-4 flex flex-col gap-3 h-full items-start">
-						<div className="flex items-center w-full">
-							<h3>{t`Logs`}</h3>
+						<div className="flex items-center w-full gap-2">
+							<h3 className="shrink-0">{t`Logs`}</h3>
+							<LogSearchBar
+								search={logsSearch}
+								setSearch={setLogsSearch}
+								matchCount={matchCount}
+								activeMatch={activeMatch}
+								onNavigate={navigateMatch}
+							/>
 							<Button
 								variant="ghost"
 								size="sm"
@@ -454,6 +596,7 @@ export function ContainerSheet({
 							ref={logsContainerRef}
 							className={cn(
 								"max-h-[calc(50dvh-10rem)] w-full overflow-auto p-3 rounded-md bg-gh-dark text-white text-sm",
+								logsSearch.trim() && "whitespace-pre-wrap font-mono",
 								!logsDisplay && ["animate-pulse", "h-full"]
 							)}
 						>
@@ -541,6 +684,11 @@ function LogsFullscreenDialog({
 	containerName,
 	onRefresh,
 	isRefreshing,
+	search,
+	setSearch,
+	matchCount,
+	activeMatch,
+	onNavigate,
 }: {
 	open: boolean
 	onOpenChange: (open: boolean) => void
@@ -548,28 +696,50 @@ function LogsFullscreenDialog({
 	containerName: string
 	onRefresh: () => void | Promise<void>
 	isRefreshing: boolean
+	search: string
+	setSearch: (value: string) => void
+	matchCount: number
+	activeMatch: number
+	onNavigate: (dir: 1 | -1) => void
 }) {
 	const outerContainerRef = useRef<HTMLDivElement>(null)
 
 	useEffect(() => {
-		if (open && logsDisplay) {
-			// Scroll the outer container to bottom
-			const scrollToBottom = () => {
-				if (outerContainerRef.current) {
-					outerContainerRef.current.scrollTop = outerContainerRef.current.scrollHeight
-				}
-			}
-			setTimeout(scrollToBottom, 50)
+		if (!open || !logsDisplay) return
+		if (search.trim()) {
+			outerContainerRef.current?.querySelector(".log-match-current")?.scrollIntoView({ block: "center" })
+			return
 		}
-	}, [open, logsDisplay])
+		// Scroll the outer container to bottom
+		const scrollToBottom = () => {
+			if (outerContainerRef.current) {
+				outerContainerRef.current.scrollTop = outerContainerRef.current.scrollHeight
+			}
+		}
+		setTimeout(scrollToBottom, 50)
+	}, [open, logsDisplay, search])
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="w-[calc(100vw-20px)] h-[calc(100dvh-20px)] max-w-none p-0 bg-gh-dark border-0 text-white">
 				<DialogTitle className="sr-only">{containerName} logs</DialogTitle>
+				<div className="absolute top-3 left-3 z-10">
+					<LogSearchBar
+						search={search}
+						setSearch={setSearch}
+						matchCount={matchCount}
+						activeMatch={activeMatch}
+						onNavigate={onNavigate}
+					/>
+				</div>
 				<div ref={outerContainerRef} className="h-full overflow-auto">
-					<div className="h-full w-full px-3 leading-relaxed rounded-md bg-gh-dark text-sm">
-						<div className="py-3" dangerouslySetInnerHTML={{ __html: logsDisplay }} />
+					<div
+						className={cn(
+							"h-full w-full px-3 leading-relaxed rounded-md bg-gh-dark text-sm",
+							search.trim() && "whitespace-pre-wrap font-mono"
+						)}
+					>
+						<div className="py-3 pt-14" dangerouslySetInnerHTML={{ __html: logsDisplay }} />
 					</div>
 				</div>
 				<button

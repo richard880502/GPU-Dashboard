@@ -446,6 +446,10 @@ msgid "Clear matches"
 msgstr "Εκκαθάριση αντιστοιχιών"
 
 #: src/components/containers-table/containers-table.tsx
+msgid "Clear search"
+msgstr ""
+
+#: src/components/containers-table/containers-table.tsx
 msgid "Click on a container to view more information."
 msgstr "Κάντε κλικ σε ένα κοντέινερ για να δείτε περισσότερες πληροφορίες."
 
@@ -1325,6 +1329,10 @@ msgstr "Κίνηση δικτύου δημόσιων interfaces"
 msgid "Network unit"
 msgstr "Μονάδα δικτύου"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Next match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
@@ -1579,6 +1587,10 @@ msgstr "Ακριβής χρήση κατά τον καταγεγραμμένο �
 msgid "Preferred Language"
 msgstr "Προτιμώμενη γλώσσα"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Previous match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 msgid "Process started"
 msgstr "Η διεργασία ξεκίνησε"
@@ -1755,6 +1767,10 @@ msgstr "Αναζήτηση"
 #: src/components/command-palette.tsx
 msgid "Search for systems or settings..."
 msgstr "Αναζήτηση συστημάτων ή ρυθμίσεων..."
+
+#: src/components/containers-table/containers-table.tsx
+msgid "Search logs..."
+msgstr ""
 
 #: src/components/network-monitors-table/monitor-dialog.tsx
 #: src/components/network-monitors-table/monitor-dialog.tsx

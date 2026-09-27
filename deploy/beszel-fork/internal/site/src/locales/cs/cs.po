@@ -446,6 +446,10 @@ msgid "Clear matches"
 msgstr "Vymazat shody"
 
 #: src/components/containers-table/containers-table.tsx
+msgid "Clear search"
+msgstr ""
+
+#: src/components/containers-table/containers-table.tsx
 msgid "Click on a container to view more information."
 msgstr "Klikněte na kontejner pro zobrazení dalších informací."
 
@@ -1325,6 +1329,10 @@ msgstr "Síťový provoz veřejných rozhraní"
 msgid "Network unit"
 msgstr "Síťová jednotka"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Next match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
 #: src/components/systemd-table/systemd-table.tsx
@@ -1579,6 +1587,10 @@ msgstr "Přesné využití v zaznamenaném čase"
 msgid "Preferred Language"
 msgstr "Upřednostňovaný jazyk"
 
+#: src/components/containers-table/containers-table.tsx
+msgid "Previous match"
+msgstr ""
+
 #: src/components/systemd-table/systemd-table.tsx
 msgid "Process started"
 msgstr "Proces spuštěn"
@@ -1755,6 +1767,10 @@ msgstr "Hledat"
 #: src/components/command-palette.tsx
 msgid "Search for systems or settings..."
 msgstr "Hledat systémy nebo nastavení..."
+
+#: src/components/containers-table/containers-table.tsx
+msgid "Search logs..."
+msgstr ""
 
 #: src/components/network-monitors-table/monitor-dialog.tsx
 #: src/components/network-monitors-table/monitor-dialog.tsx
