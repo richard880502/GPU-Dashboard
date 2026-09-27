@@ -1,23 +1,37 @@
 // gpu-monitoring fork addition (not upstream): a per-GPU status table for
 // the home page, mirroring this project's own Grafana "GPU Status by
 // Server" panel (one row per server+GPU, with Util/VRAM/Temp/Power).
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useStore } from "@nanostores/react"
 import { getPagePath } from "@nanostores/router"
+import { t } from "@lingui/core/macro"
 import { pb } from "@/lib/api"
 import { $allSystemsById } from "@/lib/stores"
 import { MeterState } from "@/lib/enums"
-import type { GPUProcess } from "@/types"
+import type { ContainerRecord, GPUProcess } from "@/types"
 import { cn, decimalString, getServerDotColor } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { HashIcon } from "lucide-react"
 import { GpuIcon } from "./ui/icons"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet"
 import { $router, Link } from "./router"
+import { ContainerSheet } from "./containers-table/containers-table"
+import { toast } from "./ui/use-toast"
 
 // Renders a process's container attribution readably instead of the raw
-// "host:<process>" / "k8s:<namespace>/<pod>/<container>" wire format.
-function ProcessContainerLabel({ value }: { value: string }) {
+// "host:<process>" / "k8s:<namespace>/<pod>/<container>" wire format. Real
+// Docker containers (the plain-name case) are clickable, drilling into the
+// same logs/detail Sheet the /containers page uses -- host and k8s-attributed
+// processes have no Docker container record to look up, so they stay plain.
+function ProcessContainerLabel({
+	value,
+	systemId,
+	onOpenContainer,
+}: {
+	value: string
+	systemId: string
+	onOpenContainer: (systemId: string, containerName: string) => void
+}) {
 	if (value.startsWith("host:")) {
 		const processName = value.slice("host:".length)
 		return <span className="text-muted-foreground">host ({processName})</span>
@@ -33,7 +47,15 @@ function ProcessContainerLabel({ value }: { value: string }) {
 			</span>
 		)
 	}
-	return <>{value}</>
+	return (
+		<button
+			type="button"
+			className="hover:underline underline-offset-2 text-left"
+			onClick={() => onOpenContainer(systemId, value)}
+		>
+			{value}
+		</button>
+	)
 }
 
 interface GpuEntry {
@@ -121,11 +143,13 @@ function GpuProcessesSheet({
 	systemName,
 	open,
 	setOpen,
+	onOpenContainer,
 }: {
 	row: GpuRow | undefined
 	systemName: string
 	open: boolean
 	setOpen: (open: boolean) => void
+	onOpenContainer: (systemId: string, containerName: string) => void
 }) {
 	return (
 		<Sheet open={open} onOpenChange={setOpen}>
@@ -157,7 +181,7 @@ function GpuProcessesSheet({
 										<td className="py-2 pe-4 tabular-nums">{proc.pid}</td>
 										<td className="py-2 pe-4">{proc.un ?? "-"}</td>
 										<td className="py-2 pe-4">
-											<ProcessContainerLabel value={proc.c} />
+											<ProcessContainerLabel value={proc.c} systemId={row.systemId} onOpenContainer={onOpenContainer} />
 										</td>
 										<td className="py-2 pe-4 tabular-nums">{proc.mu ? `${decimalString(proc.mu, 0)} MiB` : "-"}</td>
 										<td className="py-2 pe-4 tabular-nums">{proc.mp ? `${decimalString(proc.mp, 1)}%` : "0%"}</td>
@@ -178,6 +202,30 @@ export function GpuStatusTable() {
 	const [rows, setRows] = useState<GpuRow[]>([])
 	const [activeRowKey, setActiveRowKey] = useState<string | undefined>(undefined)
 	const [sheetOpen, setSheetOpen] = useState(false)
+	const activeContainer = useRef<ContainerRecord | null>(null)
+	const [containerSheetOpen, setContainerSheetOpen] = useState(false)
+
+	// Resolves a container name (all the GPU process row has) to its actual
+	// container record (id, image, status, ...), which the shared
+	// ContainerSheet -- and the /api/beszel/containers/logs|info endpoints it
+	// calls -- need. Only real Docker containers have one; host/k8s-attributed
+	// processes never reach here (ProcessContainerLabel doesn't make them clickable).
+	async function openContainer(systemId: string, containerName: string) {
+		try {
+			const record = await pb
+				.collection<ContainerRecord>("containers")
+				.getFirstListItem(pb.filter("system = {:system} && name = {:name}", { system: systemId, name: containerName }))
+			activeContainer.current = record
+			setContainerSheetOpen(true)
+		} catch (error) {
+			console.error(error)
+			toast({
+				title: t`Container not found`,
+				description: t`It may have stopped or been removed since this GPU snapshot was taken.`,
+				variant: "destructive",
+			})
+		}
+	}
 
 	useEffect(() => {
 		let cancelled = false
@@ -279,7 +327,9 @@ export function GpuStatusTable() {
 				systemName={systems[rows.find((r) => `${r.systemId}-${r.index}` === activeRowKey)?.systemId ?? ""]?.name ?? ""}
 				open={sheetOpen}
 				setOpen={setSheetOpen}
+				onOpenContainer={openContainer}
 			/>
+			<ContainerSheet sheetOpen={containerSheetOpen} setSheetOpen={setContainerSheetOpen} activeContainer={activeContainer} />
 		</Card>
 	)
 }

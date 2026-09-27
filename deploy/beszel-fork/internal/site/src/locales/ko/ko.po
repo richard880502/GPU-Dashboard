@@ -499,6 +499,10 @@ msgstr "컨테이너"
 msgid "Container Health"
 msgstr "컨테이너 상태"
 
+#: src/components/gpu-status-table.tsx
+msgid "Container not found"
+msgstr ""
+
 #: src/components/routes/system.tsx
 msgid "Containers"
 msgstr "컨테이너"
@@ -1110,6 +1114,10 @@ msgstr "간격(초)"
 #: src/components/login/auth-form.tsx
 msgid "Invalid email address."
 msgstr "잘못된 이메일 주소입니다."
+
+#: src/components/gpu-status-table.tsx
+msgid "It may have stopped or been removed since this GPU snapshot was taken."
+msgstr ""
 
 #: src/components/routes/settings/general.tsx
 msgid "Language"

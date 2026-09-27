@@ -494,6 +494,10 @@ msgstr "Container"
 msgid "Container Health"
 msgstr "Container Health"
 
+#: src/components/gpu-status-table.tsx
+msgid "Container not found"
+msgstr "Container not found"
+
 #: src/components/routes/system.tsx
 msgid "Containers"
 msgstr "Containers"
@@ -1105,6 +1109,10 @@ msgstr "Interval (seconds)"
 #: src/components/login/auth-form.tsx
 msgid "Invalid email address."
 msgstr "Invalid email address."
+
+#: src/components/gpu-status-table.tsx
+msgid "It may have stopped or been removed since this GPU snapshot was taken."
+msgstr "It may have stopped or been removed since this GPU snapshot was taken."
 
 #: src/components/routes/settings/general.tsx
 msgid "Language"

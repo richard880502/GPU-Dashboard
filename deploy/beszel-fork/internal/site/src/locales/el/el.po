@@ -499,6 +499,10 @@ msgstr "Κοντέινερ"
 msgid "Container Health"
 msgstr "Υγεία κοντέινερ"
 
+#: src/components/gpu-status-table.tsx
+msgid "Container not found"
+msgstr ""
+
 #: src/components/routes/system.tsx
 msgid "Containers"
 msgstr "Κοντέινερ"
@@ -1110,6 +1114,10 @@ msgstr "Διάστημα (δευτερόλεπτα)"
 #: src/components/login/auth-form.tsx
 msgid "Invalid email address."
 msgstr "Μη έγκυρη διεύθυνση email."
+
+#: src/components/gpu-status-table.tsx
+msgid "It may have stopped or been removed since this GPU snapshot was taken."
+msgstr ""
 
 #: src/components/routes/settings/general.tsx
 msgid "Language"

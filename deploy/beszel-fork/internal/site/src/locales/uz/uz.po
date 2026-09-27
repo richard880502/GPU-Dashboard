@@ -499,6 +499,10 @@ msgstr "Konteyner"
 msgid "Container Health"
 msgstr "Konteyner holati"
 
+#: src/components/gpu-status-table.tsx
+msgid "Container not found"
+msgstr ""
+
 #: src/components/routes/system.tsx
 msgid "Containers"
 msgstr "Konteynerlar"
@@ -1110,6 +1114,10 @@ msgstr "Oraliq (soniya)"
 #: src/components/login/auth-form.tsx
 msgid "Invalid email address."
 msgstr "Noto'g'ri elektron pochta manzili."
+
+#: src/components/gpu-status-table.tsx
+msgid "It may have stopped or been removed since this GPU snapshot was taken."
+msgstr ""
 
 #: src/components/routes/settings/general.tsx
 msgid "Language"

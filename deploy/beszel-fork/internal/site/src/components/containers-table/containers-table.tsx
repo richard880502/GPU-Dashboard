@@ -312,7 +312,7 @@ async function getInfoHtml(container: ContainerRecord): Promise<{ html: string; 
 	}
 }
 
-function ContainerSheet({
+export function ContainerSheet({
 	sheetOpen,
 	setSheetOpen,
 	activeContainer,

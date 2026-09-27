@@ -499,6 +499,10 @@ msgstr "Kontainer"
 msgid "Container Health"
 msgstr "Kesehatan Kontainer"
 
+#: src/components/gpu-status-table.tsx
+msgid "Container not found"
+msgstr ""
+
 #: src/components/routes/system.tsx
 msgid "Containers"
 msgstr "Kontainer"
@@ -1110,6 +1114,10 @@ msgstr "Interval (detik)"
 #: src/components/login/auth-form.tsx
 msgid "Invalid email address."
 msgstr "Alamat email tidak valid."
+
+#: src/components/gpu-status-table.tsx
+msgid "It may have stopped or been removed since this GPU snapshot was taken."
+msgstr ""
 
 #: src/components/routes/settings/general.tsx
 msgid "Language"

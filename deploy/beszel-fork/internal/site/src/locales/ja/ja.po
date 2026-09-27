@@ -499,6 +499,10 @@ msgstr "コンテナ"
 msgid "Container Health"
 msgstr "コンテナのヘルス"
 
+#: src/components/gpu-status-table.tsx
+msgid "Container not found"
+msgstr ""
+
 #: src/components/routes/system.tsx
 msgid "Containers"
 msgstr "コンテナ"
@@ -1110,6 +1114,10 @@ msgstr "間隔（秒）"
 #: src/components/login/auth-form.tsx
 msgid "Invalid email address."
 msgstr "無効なメールアドレスです。"
+
+#: src/components/gpu-status-table.tsx
+msgid "It may have stopped or been removed since this GPU snapshot was taken."
+msgstr ""
 
 #: src/components/routes/settings/general.tsx
 msgid "Language"

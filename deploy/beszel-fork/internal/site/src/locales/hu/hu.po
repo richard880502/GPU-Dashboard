@@ -499,6 +499,10 @@ msgstr "Konténer"
 msgid "Container Health"
 msgstr "Konténer állapota"
 
+#: src/components/gpu-status-table.tsx
+msgid "Container not found"
+msgstr ""
+
 #: src/components/routes/system.tsx
 msgid "Containers"
 msgstr "Konténerek"
@@ -1110,6 +1114,10 @@ msgstr "Intervallum (másodperc)"
 #: src/components/login/auth-form.tsx
 msgid "Invalid email address."
 msgstr "Érvénytelen e-mail cím."
+
+#: src/components/gpu-status-table.tsx
+msgid "It may have stopped or been removed since this GPU snapshot was taken."
+msgstr ""
 
 #: src/components/routes/settings/general.tsx
 msgid "Language"

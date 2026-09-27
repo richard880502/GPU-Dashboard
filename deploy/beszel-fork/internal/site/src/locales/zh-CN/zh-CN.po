@@ -499,6 +499,10 @@ msgstr "容器"
 msgid "Container Health"
 msgstr "容器健康"
 
+#: src/components/gpu-status-table.tsx
+msgid "Container not found"
+msgstr ""
+
 #: src/components/routes/system.tsx
 msgid "Containers"
 msgstr "容器"
@@ -1110,6 +1114,10 @@ msgstr "间隔 (秒)"
 #: src/components/login/auth-form.tsx
 msgid "Invalid email address."
 msgstr "无效的电子邮件地址。"
+
+#: src/components/gpu-status-table.tsx
+msgid "It may have stopped or been removed since this GPU snapshot was taken."
+msgstr ""
 
 #: src/components/routes/settings/general.tsx
 msgid "Language"
