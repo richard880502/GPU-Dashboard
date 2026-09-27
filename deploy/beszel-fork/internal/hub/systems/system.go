@@ -2,6 +2,7 @@ package systems
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -550,14 +551,25 @@ func createContainerRecords(app core.App, data []*container.Stats, systemId stri
 }
 
 // getRecord retrieves the system record from the database.
-// If the record is not found, it removes the system from the manager.
+// It only removes the system from the manager when the record is genuinely
+// gone (sql.ErrNoRows) -- any other error (e.g. a transient DB lock/I/O
+// hiccup, which is plausible given the DB file lives on an NFS-shared data
+// dir) is logged and returned as-is, leaving the system's updater ticker to
+// retry on its next tick instead of permanently killing its goroutine with
+// no trace. See the 2026-09 multi-system silent-stall incident: this used to
+// unregister the system (and thus stop it forever, with zero logging) on
+// ANY FindRecordById error, indistinguishable from an actually-deleted record.
 func (sys *System) getRecord(app core.App) (*core.Record, error) {
 	record, err := app.FindRecordById("systems", sys.Id)
-	if err != nil || record == nil {
-		_ = sys.manager.RemoveSystem(sys.Id)
-		if err == nil {
-			err = fmt.Errorf("system record %s not found", sys.Id)
+	if err == nil && record == nil {
+		err = sql.ErrNoRows
+	}
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			_ = sys.manager.RemoveSystem(sys.Id)
+			return nil, fmt.Errorf("system record %s not found", sys.Id)
 		}
+		sys.manager.hub.Logger().Error("Failed to fetch system record, will retry next tick", "system", sys.Id, "err", err)
 		return nil, err
 	}
 	return record, nil

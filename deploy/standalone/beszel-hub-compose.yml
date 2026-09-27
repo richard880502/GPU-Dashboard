@@ -11,9 +11,14 @@
 #   docker build -f internal/dockerfile_hub -t beszel-hub-fork:test .
 #
 # Usage (first run -- creates the account named by USER_EMAIL):
-#   mkdir -p ../beszel/data && chmod 777 ../beszel/data
+#   mkdir -p /path/to/local-disk/beszel-hub-data && chmod 777 /path/to/local-disk/beszel-hub-data
 #   cp .env.example .env   # set a real USER_PASSWORD
 #   docker compose -f beszel-hub-compose.yml up -d
+#
+# The data dir MUST be on this host's local disk, not the NFS-shared /home
+# mount -- PocketBase's SQLite file needs reliable file locking, which NFS's
+# advisory-lock semantics don't guarantee (a plausible contributor to a 2026-09
+# multi-system silent-stall incident). Update the volumes: path below to match.
 #
 # On later runs (account already exists), USER_EMAIL/USER_PASSWORD are
 # ignored -- AUTO_LOGIN alone is enough. AUTO_LOGIN doesn't need to be a
@@ -39,7 +44,7 @@
 # values -- APP_URL to the new hub host's own IP, ACCOUNT_EMAIL to whatever
 # you want (doesn't need to be reachable, just has to match consistently
 # between USER_EMAIL and AUTO_LOGIN, both driven by this one var here):
-#   mkdir -p ../beszel/data && chmod 777 ../beszel/data
+#   mkdir -p /path/to/local-disk/beszel-hub-data && chmod 777 /path/to/local-disk/beszel-hub-data
 #   APP_URL=http://<new hub host's IP>:13000 ACCOUNT_EMAIL=newcluster@internal.local \
 #     USER_PASSWORD=<pick a real password> docker compose -f beszel-hub-compose.yml up -d
 # Then fetch this new hub's own SSH public key (its data dir, or the "Add
@@ -47,7 +52,7 @@
 # hosts needs HUB_URL and HUB_SSH_PUBLIC_KEY overridden to match.
 services:
   beszel-hub:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.7.10
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-hub:v2.7.11
     container_name: beszel
     restart: unless-stopped
     # this host runs 100+ unrelated containers and has exhausted Docker's
@@ -61,7 +66,15 @@ services:
       - USER_PASSWORD=${USER_PASSWORD:?set USER_PASSWORD (copy .env.example to .env first)}
       - UPDATE_INTERVAL_MS=5000
       - TZ=Asia/Taipei
+    # Data dir moved off the NFS-shared /home mount onto this host's local
+    # disk (2026-09-27). PocketBase's SQLite file needs reliable file locking,
+    # which NFS's flock/advisory-lock semantics don't guarantee -- a plausible
+    # contributor to the transient DB read errors behind the multi-system
+    # silent-stall incident (see getRecord's fix in internal/hub/systems).
+    # This path is host-specific (not part of the shared repo checkout), so
+    # it isn't set up automatically by cloning the repo on a new hub host --
+    # see the usage comment above for first-run setup.
     volumes:
-      - ../beszel/data:/beszel_data
+      - /tmp2/richard/beszel-hub-data:/beszel_data
     ports:
       - "13000:8090"
