@@ -25,7 +25,7 @@ def run_once() -> None:
 
 def main() -> None:
     log.info(
-        "slack-monitor starting: hub=%s channels=%s dm_users=%s interval=%ss mention_listener=%s",
+        "slack-monitor starting: hub=%s channels=%s dm_users=%s interval=%ss event_listener=%s",
         config.HUB_URL,
         config.SLACK_CHANNEL_IDS,
         config.SLACK_DM_USER_IDS,
@@ -36,9 +36,9 @@ def main() -> None:
     if config.SLACK_APP_TOKEN:
         # Runs forever in the background; the polling loop below is this
         # process's main purpose and keeps running in the foreground either way.
-        from . import mention_listener
+        from . import event_listener
 
-        threading.Thread(target=mention_listener.start, name="mention-listener", daemon=True).start()
+        threading.Thread(target=event_listener.start, name="event-listener", daemon=True).start()
 
     while True:
         start = time.monotonic()

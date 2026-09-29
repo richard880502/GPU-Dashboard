@@ -55,3 +55,4 @@ HUB_PASSWORD = _require("HUB_PASSWORD")
 DASHBOARD_URL = _optional("DASHBOARD_URL", HUB_URL).rstrip("/")
 
 STATE_PATH = _optional("STATE_PATH", "/data/state.json")
+SUBSCRIBERS_PATH = _optional("SUBSCRIBERS_PATH", "/data/subscribers.json")

@@ -20,7 +20,7 @@ from pathlib import Path
 
 import httpx
 
-from . import config
+from . import config, subscribers
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +40,13 @@ class Target:
 
 def _targets() -> list[Target]:
     targets = [Target(state_key=f"channel:{c}", is_dm=False, id=c) for c in config.SLACK_CHANNEL_IDS]
-    targets += [Target(state_key=f"dm:{u}", is_dm=True, id=u) for u in config.SLACK_DM_USER_IDS]
+    # Statically configured DM recipients, plus anyone who's self-subscribed
+    # by DMing the bot directly (see event_listener.py) -- re-read every
+    # call rather than cached, since publish() (and therefore this) runs
+    # every refresh cycle and a subscriber added moments ago must be picked
+    # up on the very next one, not require a restart.
+    dm_ids = sorted(set(config.SLACK_DM_USER_IDS) | subscribers.load())
+    targets += [Target(state_key=f"dm:{u}", is_dm=True, id=u) for u in dm_ids]
     return targets
 
 
