@@ -24,7 +24,7 @@ gpu-monitoring/
 │   │   ├── nvitop-exporter/Dockerfile
 │   │   └── gpu-process-exporter/{Dockerfile,gpu_process_exporter.py}
 │   ├── standalone/
-│   │   ├── exporter-compose.yml        # nvitop-exporter + gpu-process-exporter + node-exporter
+│   │   ├── exporter-compose.yml        # nvitop-exporter + gpu-process-exporter
 │   │   ├── beszel-hub-compose.yml      # Beszel hub — run on the monitoring server only
 │   │   └── beszel-agent-compose.yml    # Beszel agent — run on every GPU server
 │   └── beszel-fork/            # vendored github.com/henrygd/beszel + our GPU/container patches
@@ -58,9 +58,7 @@ usernames from the host's own user database instead of falling back to raw
 UIDs (see the research doc's bug #7 for why this is needed).
 
 Swap `wingene-76` for the actual hostname of whichever box you're on. Images are
-public — no `docker login` needed to pull. Only `nvitop-exporter` and
-`gpu-process-exporter` are published; `node-exporter` below is the official
-upstream image, nothing custom to publish.
+public — no `docker login` needed to pull.
 
 ### Option B: build from source (if you've changed the exporter code)
 
@@ -70,8 +68,7 @@ ssh richard@192.168.1.76 '/tmp/deploy/install-exporter.sh wingene-76'
 ```
 
 Repeat either option for `.77`/`wingene-77`, `.78`/`wingene-78`, `.79`/`wingene-79`,
-`.80`/`wingene-80`. Either way you end up with three containers running
-(`install-exporter.sh` also handles the third one, `node-exporter`, either way):
+`.80`/`wingene-80`. Either way you end up with two containers running:
 
 - **nvitop-exporter** (`:5051`, `--gpus all --pid host`) — GPU/host metrics
   (util, VRAM, temp, power, CPU%, RAM%), including per-process GPU
@@ -85,16 +82,18 @@ Repeat either option for `.77`/`wingene-77`, `.78`/`wingene-78`, `.79`/`wingene-
   socket at all), also set `CRI_SOCKET_PATH` to attribute those to their
   pod/container via `crictl` instead of falling back to `"host"` — see
   `deploy/standalone/exporter-compose.yml`.
-- **node-exporter** (`:9100`, official `prom/node-exporter` image, `--net=host
-  --pid=host`) — host metrics nvitop-exporter doesn't cover (disk usage, CPU
-  temperature via `--collector.hwmon`).
+
+(A third container, `node-exporter`, used to run alongside these for a
+Grafana host-metrics panel from back when Beszel was still a side-by-side
+pilot. Removed 2026-09 -- beszel-agent collects the same host metrics
+natively, Beszel is the primary dashboard now, and nothing was scraping
+node-exporter's `:9100` anymore anyway.)
 
 Verify either option worked:
 
 ```bash
 curl http://192.168.1.76:5051/metrics | head
 curl http://192.168.1.76:5052/metrics | head
-curl http://192.168.1.76:9100/metrics | head
 ```
 
 ## 2. Beszel (monitoring server + every GPU server)
@@ -175,17 +174,15 @@ internal network, same approach used for the old Grafana setup.
 
 ## 3. Firewall
 
-`nvitop-exporter:5051`, `gpu-process-exporter:5052`, and `node-exporter:9100`
-should only be reachable from the monitoring server, not from general users.
-On each GPU server:
+`nvitop-exporter:5051` and `gpu-process-exporter:5052` should only be
+reachable from the monitoring server, not from general users. On each GPU
+server:
 
 ```bash
 ufw allow from 192.168.1.76 to any port 5051 proto tcp
 ufw allow from 192.168.1.76 to any port 5052 proto tcp
-ufw allow from 192.168.1.76 to any port 9100 proto tcp
 ufw deny 5051/tcp
 ufw deny 5052/tcp
-ufw deny 9100/tcp
 ```
 
 Not yet applied — none of the 5 GPU boxes grant passwordless sudo to the deploy

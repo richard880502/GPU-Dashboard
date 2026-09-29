@@ -56,13 +56,3 @@ services:
       - ${CRI_MOUNT_PATH:-/dev/null}:${CRI_MOUNT_PATH:-/dev/null}
     ports:
       - "5052:5052"
-
-  node-exporter:
-    image: prom/node-exporter:latest
-    container_name: node-exporter
-    restart: always
-    network_mode: host
-    pid: host
-    volumes:
-      - /:/host:ro,rslave
-    command: ["--path.rootfs=/host", "--collector.hwmon"]
