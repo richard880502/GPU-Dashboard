@@ -34,12 +34,18 @@ services:
     network_mode: host
     environment:
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:?set SLACK_BOT_TOKEN (see the setup steps above)}
-      # Set exactly one of these: SLACK_CHANNEL_ID posts to a shared channel
-      # the bot's been invited to; SLACK_DM_USER_ID (needs the extra
-      # im:write scope) has the bot DM that person instead. DM wins if both
-      # are set.
+      # Any mix of these is fine (comma-separated for more than one of each):
+      # SLACK_CHANNEL_ID posts to a shared channel the bot's been invited to;
+      # SLACK_DM_USER_ID (needs the extra im:write scope) has the bot DM
+      # that person instead. Each target gets its own independently
+      # maintained persistent message.
       - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-}
       - SLACK_DM_USER_ID=${SLACK_DM_USER_ID:-}
+      # Optional: reply with a fresh snapshot when the bot is @-mentioned.
+      # Needs app_mentions:read (bot scope) + Socket Mode enabled + this
+      # app-level token (xapp-..., connections:write scope). Leave unset to
+      # skip this feature entirely.
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN:-}
       - SLACK_REFRESH_INTERVAL_SECONDS=${SLACK_REFRESH_INTERVAL_SECONDS:-30}
       - HUB_URL=${HUB_URL:-http://127.0.0.1:13000}
       - HUB_EMAIL=${ACCOUNT_EMAIL:-wingene@internal.local}

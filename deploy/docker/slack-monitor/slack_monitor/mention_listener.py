@@ -40,7 +40,12 @@ def _handle_mention(event: dict, say) -> None:
 def start() -> None:
     """Blocks forever -- main.py runs this in its own thread alongside the
     polling loop, since both need to run concurrently in one process."""
-    app = App(token=config.SLACK_BOT_TOKEN)
+    # signing_secret is only ever used to verify inbound HTTP requests
+    # (Events API mode) -- Socket Mode receives events over the WebSocket
+    # this opens below instead, so that verifier is never actually
+    # exercised. slack_bolt's App still insists on a non-empty string here
+    # regardless of mode, hence the placeholder.
+    app = App(token=config.SLACK_BOT_TOKEN, signing_secret="unused-in-socket-mode")
     app.event("app_mention")(_handle_mention)
     log.info("mention listener starting (Socket Mode)")
     SocketModeHandler(app, config.SLACK_APP_TOKEN).start()
