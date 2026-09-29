@@ -34,6 +34,14 @@ if not SLACK_CHANNEL_IDS and not SLACK_DM_USER_IDS:
 
 REFRESH_INTERVAL_SECONDS = int(_optional("SLACK_REFRESH_INTERVAL_SECONDS", "30"))
 
+# Optional: reply with a fresh snapshot whenever the bot is @-mentioned (see
+# mention_listener.py). Needs a separate app-level token (xapp-...,
+# connections:write scope, from Basic Information -> App-Level Tokens) and
+# the app_mentions:read bot scope, plus enabling Socket Mode itself in the
+# app's settings. Left unset, this feature is simply off -- everything else
+# behaves exactly as before.
+SLACK_APP_TOKEN = _optional("SLACK_APP_TOKEN", "")
+
 # All cluster data comes from the Beszel hub's own API -- see hub_client.py
 # for why this replaced scraping each host's exporters directly.
 HUB_URL = _optional("HUB_URL", "http://127.0.0.1:13000").rstrip("/")

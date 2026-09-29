@@ -14,10 +14,15 @@ reference: https://docs.slack.dev/reference/block-kit/blocks/card-block/
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import config
 from .models import ServerStatus
+
+# Fixed UTC+8 offset, not a zoneinfo lookup -- Taiwan has no DST, so this is
+# always correct without needing a tzdata package in the (deliberately
+# minimal) python:3.11-slim image.
+_TAIPEI = timezone(timedelta(hours=8))
 
 _MAX_CARDS_PER_CAROUSEL = 10
 _STATUS_DOT = {"up": "\U0001f7e2", "down": "\U0001f534", "paused": "⏸️", "pending": "\U0001f7e1"}
@@ -122,7 +127,7 @@ def _card_for(server: ServerStatus) -> dict:
 def render(servers: list[ServerStatus]) -> list[dict]:
     up = sum(1 for s in servers if s.status == "up")
     total = len(servers)
-    now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+    now = datetime.now(_TAIPEI).strftime("%H:%M:%S (UTC+8)")
 
     all_gpus = [gpu for s in servers for gpu in s.gpus]
     total_gpus = len(all_gpus)

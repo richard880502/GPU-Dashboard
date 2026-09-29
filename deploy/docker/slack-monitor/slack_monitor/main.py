@@ -8,6 +8,7 @@ beats one that stays down until someone notices the container exited.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 
 from . import config, hub_client, renderer, slack_client
@@ -24,12 +25,21 @@ def run_once() -> None:
 
 def main() -> None:
     log.info(
-        "slack-monitor starting: hub=%s channels=%s dm_users=%s interval=%ss",
+        "slack-monitor starting: hub=%s channels=%s dm_users=%s interval=%ss mention_listener=%s",
         config.HUB_URL,
         config.SLACK_CHANNEL_IDS,
         config.SLACK_DM_USER_IDS,
         config.REFRESH_INTERVAL_SECONDS,
+        bool(config.SLACK_APP_TOKEN),
     )
+
+    if config.SLACK_APP_TOKEN:
+        # Runs forever in the background; the polling loop below is this
+        # process's main purpose and keeps running in the foreground either way.
+        from . import mention_listener
+
+        threading.Thread(target=mention_listener.start, name="mention-listener", daemon=True).start()
+
     while True:
         start = time.monotonic()
         try:
