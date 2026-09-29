@@ -16,8 +16,22 @@ def _optional(name: str, default: str) -> str:
     return os.environ.get(name, "").strip() or default
 
 
+def _optional_list(name: str) -> list[str]:
+    raw = os.environ.get(name, "")
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 SLACK_BOT_TOKEN = _require("SLACK_BOT_TOKEN")
-SLACK_CHANNEL_ID = _require("SLACK_CHANNEL_ID")
+
+# One live dashboard message per target, kept independently up to date --
+# any mix of shared channels (the bot must be invited to each) and DMs
+# (needs the im:write scope in addition to chat:write) is fine, e.g.
+# SLACK_CHANNEL_ID=C0123,C0456 SLACK_DM_USER_ID=U0123,U0456
+SLACK_CHANNEL_IDS = _optional_list("SLACK_CHANNEL_ID")
+SLACK_DM_USER_IDS = _optional_list("SLACK_DM_USER_ID")
+if not SLACK_CHANNEL_IDS and not SLACK_DM_USER_IDS:
+    raise RuntimeError("set SLACK_CHANNEL_ID and/or SLACK_DM_USER_ID (comma-separated for more than one)")
+
 REFRESH_INTERVAL_SECONDS = int(_optional("SLACK_REFRESH_INTERVAL_SECONDS", "30"))
 
 # All cluster data comes from the Beszel hub's own API -- see hub_client.py

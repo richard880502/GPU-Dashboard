@@ -27,9 +27,19 @@ services:
       context: ../docker/slack-monitor
     container_name: gpu-slack-monitor
     restart: unless-stopped
+    # host networking so HUB_URL's default (127.0.0.1, the hub runs on this
+    # same host) actually reaches it -- this host runs 100+ unrelated
+    # containers and has exhausted Docker's predefined subnet pool, same
+    # reasoning as beszel-hub-compose.yml's own network_mode choice.
+    network_mode: host
     environment:
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:?set SLACK_BOT_TOKEN (see the setup steps above)}
-      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:?set SLACK_CHANNEL_ID}
+      # Set exactly one of these: SLACK_CHANNEL_ID posts to a shared channel
+      # the bot's been invited to; SLACK_DM_USER_ID (needs the extra
+      # im:write scope) has the bot DM that person instead. DM wins if both
+      # are set.
+      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-}
+      - SLACK_DM_USER_ID=${SLACK_DM_USER_ID:-}
       - SLACK_REFRESH_INTERVAL_SECONDS=${SLACK_REFRESH_INTERVAL_SECONDS:-30}
       - HUB_URL=${HUB_URL:-http://127.0.0.1:13000}
       - HUB_EMAIL=${ACCOUNT_EMAIL:-wingene@internal.local}

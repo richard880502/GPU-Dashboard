@@ -22,6 +22,15 @@ from .models import ServerStatus
 _MAX_CARDS_PER_CAROUSEL = 10
 _STATUS_DOT = {"up": "\U0001f7e2", "down": "\U0001f534", "paused": "⏸️", "pending": "\U0001f7e1"}
 _TRAILING_DEVICE_INDEX = re.compile(r"\s\d$")
+_BUSY_THRESHOLD = 1.0  # % GPU utilization below which a GPU counts as idle, not busy
+
+
+def _bar(percent: float, width: int = 20) -> str:
+    """A Unicode block-character progress bar -- plain text, so it renders
+    identically in every Slack client without needing an image."""
+    percent = max(0.0, min(100.0, percent))
+    filled = round(width * percent / 100)
+    return "█" * filled + "░" * (width - filled)
 
 
 def _gpu_model_name(raw_name: str) -> str:
@@ -38,38 +47,60 @@ def _status_dot(status: str) -> str:
     return _STATUS_DOT.get(status, "⚪")
 
 
+def _activity_label(server: ServerStatus) -> str:
+    if server.status == "down":
+        return "Offline"
+    if server.status != "up":
+        return server.status.capitalize()
+    if any(gpu.util_percent >= _BUSY_THRESHOLD for gpu in server.gpus):
+        return "Busy"
+    return "Idle"
+
+
+def _gpu_block(gpu) -> str:
+    """One GPU's block: utilization line, a VRAM-occupancy bar (the number
+    that actually matters for "can I fit a job on this GPU"), and temp --
+    bar width kept short (10 chars) since this whole thing has to fit
+    alongside a second GPU's block inside a 200-char card body."""
+    vram_pct = (gpu.memory_used_mib / gpu.memory_total_mib * 100) if gpu.memory_total_mib else 0
+    mem_used_gb = gpu.memory_used_mib / 1024
+    mem_total_gb = gpu.memory_total_mib / 1024
+    temp = f" {gpu.temp_c:.0f}°C" if gpu.temp_c is not None else ""
+    return (
+        f"GPU{gpu.index} {gpu.util_percent:>3.0f}%\n"
+        f"{_bar(vram_pct, width=10)} {mem_used_gb:.1f}/{mem_total_gb:.1f}GB{temp}"
+    )
+
+
 def _gpu_lines(server: ServerStatus) -> str:
     if server.status == "down":
         return "Unreachable"
     if not server.gpus:
         return "No GPU data yet"
-    lines = []
-    for gpu in server.gpus:
-        temp = f"{gpu.temp_c:.0f}C" if gpu.temp_c is not None else "-"
-        mem_used_gb = gpu.memory_used_mib / 1024
-        mem_total_gb = gpu.memory_total_mib / 1024
-        lines.append(f"GPU{gpu.index} {gpu.util_percent:.0f}% | {mem_used_gb:.1f}/{mem_total_gb:.1f}GB | {temp}")
-    return "\n".join(lines)
+    return "\n".join(_gpu_block(gpu) for gpu in server.gpus)
 
 
-def _top_process_line(server: ServerStatus) -> str:
+def _running_block(server: ServerStatus) -> str:
     all_procs = [p for gpu in server.gpus for p in gpu.processes]
     if not all_procs:
-        return "idle"
+        return "_No active GPU workloads_"
     top = max(all_procs, key=lambda p: p.util_percent)
     who = top.username or "?"
-    return f"{who} / {top.container} ({top.util_percent:.0f}%)"
+    # A fenced code block reads as a distinct bordered box in Slack's client,
+    # the closest thing to the mockup's own bordered "Running" panel that
+    # plain mrkdwn text can do.
+    return f"Running\n```{who}\n{top.container}```"
 
 
 def _card_for(server: ServerStatus) -> dict:
     gpu_model = _gpu_model_name(server.gpus[0].name) if server.gpus else None
-    subtitle = f"{gpu_model} x{len(server.gpus)}" if gpu_model else "no GPU data"
+    subtitle = f"{gpu_model} ×{len(server.gpus)}  ·  {_activity_label(server)}" if gpu_model else "no GPU data"
 
     cpu = f"{server.cpu_percent:.0f}%" if server.cpu_percent is not None else "-"
     mem = f"{server.mem_percent:.0f}%" if server.mem_percent is not None else "-"
 
     body = _gpu_lines(server)
-    subtext = f"{_top_process_line(server)}\nCPU {cpu} | RAM {mem}"
+    subtext = f"{_running_block(server)}\nCPU {cpu}  ·  RAM {mem}"
 
     return {
         "type": "card",
@@ -80,7 +111,7 @@ def _card_for(server: ServerStatus) -> dict:
         "actions": [
             {
                 "type": "button",
-                "text": {"type": "plain_text", "text": "View in Beszel"},
+                "text": {"type": "plain_text", "text": "Open details"},
                 "action_id": f"open_dashboard_{server.system_id}",
                 "url": config.DASHBOARD_URL,
             }
@@ -90,18 +121,32 @@ def _card_for(server: ServerStatus) -> dict:
 
 def render(servers: list[ServerStatus]) -> list[dict]:
     up = sum(1 for s in servers if s.status == "up")
-    down = sum(1 for s in servers if s.status == "down")
     total = len(servers)
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+
+    all_gpus = [gpu for s in servers for gpu in s.gpus]
+    total_gpus = len(all_gpus)
+    busy_gpus = sum(1 for gpu in all_gpus if gpu.util_percent >= _BUSY_THRESHOLD)
+    vram_used_gb = sum(gpu.memory_used_mib for gpu in all_gpus) / 1024
+    offline = sum(1 for s in servers if s.status != "up")
 
     blocks: list[dict] = [
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*GPU Cluster*\n{up}/{total} online"
-                + (f" · {down} unreachable" if down else "")
-                + f"\nLast updated: {now}",
+                "text": (
+                    f"*GPU Cluster Monitor*   {_status_dot('up' if offline == 0 else 'down')} {up}/{total} online\n"
+                    f"Updated {now} · auto-refresh every {config.REFRESH_INTERVAL_SECONDS}s\n"
+                    # A code block is the only mrkdwn container that
+                    # preserves alignment -- regular text collapses runs of
+                    # spaces the same way HTML does, so padded columns
+                    # outside one would just render as single spaces.
+                    "```"
+                    f"Total GPUs   GPU Busy   VRAM Used   Offline\n"
+                    f"{total_gpus:<13}{busy_gpus:<11}{vram_used_gb:<7.1f}GB    {offline}"
+                    "```"
+                ),
             },
         }
     ]

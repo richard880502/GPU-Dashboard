@@ -24,9 +24,10 @@ def run_once() -> None:
 
 def main() -> None:
     log.info(
-        "slack-monitor starting: hub=%s channel=%s interval=%ss",
+        "slack-monitor starting: hub=%s channels=%s dm_users=%s interval=%ss",
         config.HUB_URL,
-        config.SLACK_CHANNEL_ID,
+        config.SLACK_CHANNEL_IDS,
+        config.SLACK_DM_USER_IDS,
         config.REFRESH_INTERVAL_SECONDS,
     )
     while True:
