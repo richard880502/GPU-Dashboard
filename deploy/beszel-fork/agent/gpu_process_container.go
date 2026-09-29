@@ -31,18 +31,21 @@ var promLabelRegex = regexp.MustCompile(`(\w+)="([^"]*)"`)
 var promHTTPClient = &http.Client{Timeout: 5 * time.Second}
 
 // containerGPUStats accumulates GPU usage for one container, summed across
-// every GPU-using PID that belongs to it (usually just one).
+// every GPU-using PID that belongs to it (usually just one, but a single
+// process can also legitimately show up on more than one GPU -- e.g. a
+// multi-GPU job holding the same PID on each device it uses).
 type containerGPUStats struct {
 	pids       []string
+	pidSeen    map[string]struct{}
 	indices    map[string]struct{}
 	memMiB     float64
 	memPercent float64
 	utilPct    float64
 }
 
-// collectContainerGPUStats joins gpu-process-exporter's PID->container map
-// with nvitop-exporter's per-process GPU memory/utilization, keyed by PID,
-// and returns the result grouped by container name.
+// collectContainerGPUStats joins gpu-process-exporter's (PID,GPU index)->container
+// map with nvitop-exporter's per-process GPU memory/utilization, and returns
+// the result grouped by container name.
 func collectContainerGPUStats() map[string]*containerGPUStats {
 	containerByPID := fetchContainerByPID("http://127.0.0.1:5052/metrics")
 	if containerByPID == nil {
@@ -51,24 +54,27 @@ func collectContainerGPUStats() map[string]*containerGPUStats {
 	usageByPID, memTotalByIndex := fetchNvitopData("http://127.0.0.1:5051/metrics")
 
 	result := make(map[string]*containerGPUStats)
-	for pid, pc := range containerByPID {
+	for key, pc := range containerByPID {
 		stats, ok := result[pc.container]
 		if !ok {
-			stats = &containerGPUStats{indices: make(map[string]struct{})}
+			stats = &containerGPUStats{indices: make(map[string]struct{}), pidSeen: make(map[string]struct{})}
 			result[pc.container] = stats
 		}
-		stats.pids = append(stats.pids, pid)
-		if pc.index != "" {
-			stats.indices[pc.index] = struct{}{}
+		if _, seen := stats.pidSeen[key.pid]; !seen {
+			stats.pidSeen[key.pid] = struct{}{}
+			stats.pids = append(stats.pids, key.pid)
 		}
-		if u, ok := usageByPID[pid]; ok {
+		if key.index != "" {
+			stats.indices[key.index] = struct{}{}
+		}
+		if u, ok := usageByPID[key]; ok {
 			stats.memMiB += u.memMiB
 			stats.utilPct += u.utilPct
 			// process_gpu_memory_utilization_Percentage (NVML's per-process
 			// memory-bandwidth sample) is NOT "% of GPU memory used" -- it's
 			// usually ~0 even for a process holding most of the GPU's memory.
 			// Compute the real occupancy percentage ourselves instead.
-			if total, ok := memTotalByIndex[pc.index]; ok && total > 0 {
+			if total, ok := memTotalByIndex[key.index]; ok && total > 0 {
 				stats.memPercent += u.memMiB / total * 100
 			}
 		}
@@ -114,14 +120,14 @@ func attachGPUProcesses(gpuData map[string]system.GPUData) {
 	usageByPID, memTotalByIndex := fetchNvitopData("http://127.0.0.1:5051/metrics")
 
 	byIndex := make(map[string][]system.GPUProcess)
-	for pid, pc := range containerByPID {
-		u := usageByPID[pid]
+	for key, pc := range containerByPID {
+		u := usageByPID[key]
 		memPercent := 0.0
-		if total, ok := memTotalByIndex[pc.index]; ok && total > 0 {
+		if total, ok := memTotalByIndex[key.index]; ok && total > 0 {
 			memPercent = u.memMiB / total * 100
 		}
-		byIndex[pc.index] = append(byIndex[pc.index], system.GPUProcess{
-			PID:           pid,
+		byIndex[key.index] = append(byIndex[key.index], system.GPUProcess{
+			PID:           key.pid,
 			Container:     pc.container,
 			MemoryMiB:     u.memMiB,
 			UtilPercent:   u.utilPct,
@@ -139,14 +145,24 @@ func attachGPUProcesses(gpuData map[string]system.GPUData) {
 	}
 }
 
+// pidIndex identifies one process's usage of one specific GPU. A PID alone
+// isn't unique here -- a multi-GPU job holds the same PID on every device it
+// uses, each reported as its own line in both exporters' metrics -- so every
+// map keyed by "just the PID" below was silently collapsing those onto
+// whichever GPU's line happened to be read last, dropping the process from
+// its other GPU(s) entirely.
+type pidIndex struct {
+	pid   string
+	index string
+}
+
 type pidContainer struct {
 	container string
-	index     string
 	username  string
 }
 
 // fetchContainerByPID parses gpu_process_container_info{...,index="0",pid="123",...,container_name="foo"} 1
-func fetchContainerByPID(url string) map[string]pidContainer {
+func fetchContainerByPID(url string) map[pidIndex]pidContainer {
 	resp, err := promHTTPClient.Get(url)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
@@ -156,7 +172,7 @@ func fetchContainerByPID(url string) map[string]pidContainer {
 	}
 	defer resp.Body.Close()
 
-	result := make(map[string]pidContainer)
+	result := make(map[pidIndex]pidContainer)
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -167,9 +183,8 @@ func fetchContainerByPID(url string) map[string]pidContainer {
 		if labels == nil || labels["pid"] == "" || labels["container_name"] == "" {
 			continue
 		}
-		result[labels["pid"]] = pidContainer{
+		result[pidIndex{pid: labels["pid"], index: labels["index"]}] = pidContainer{
 			container: labels["container_name"],
-			index:     labels["index"],
 			username:  labels["username"],
 		}
 	}
@@ -194,8 +209,8 @@ type processGPUUsage struct {
 //	process_gpu_memory_MiB{...,pid="123",...} 1868.0
 //	process_gpu_sm_utilization_Percentage{...,pid="123",...} 17.0
 //	gpu_memory_total_MiB{...,index="0",...} 24564.0
-func fetchNvitopData(url string) (usageByPID map[string]processGPUUsage, memTotalByIndex map[string]float64) {
-	usageByPID = make(map[string]processGPUUsage)
+func fetchNvitopData(url string) (usageByPID map[pidIndex]processGPUUsage, memTotalByIndex map[string]float64) {
+	usageByPID = make(map[pidIndex]processGPUUsage)
 	memTotalByIndex = make(map[string]float64)
 
 	resp, err := promHTTPClient.Get(url)
@@ -221,20 +236,22 @@ func fetchNvitopData(url string) (usageByPID map[string]processGPUUsage, memTota
 			if labels == nil || labels["pid"] == "" {
 				continue
 			}
+			key := pidIndex{pid: labels["pid"], index: labels["index"]}
 			if v, err := strconv.ParseFloat(line[spaceIdx+1:], 64); err == nil {
-				u := usageByPID[labels["pid"]]
+				u := usageByPID[key]
 				u.memMiB = v
-				usageByPID[labels["pid"]] = u
+				usageByPID[key] = u
 			}
 		case strings.HasPrefix(line, "process_gpu_sm_utilization_Percentage{"):
 			labels := promLabels(line)
 			if labels == nil || labels["pid"] == "" {
 				continue
 			}
+			key := pidIndex{pid: labels["pid"], index: labels["index"]}
 			if v, err := strconv.ParseFloat(line[spaceIdx+1:], 64); err == nil {
-				u := usageByPID[labels["pid"]]
+				u := usageByPID[key]
 				u.utilPct = v
-				usageByPID[labels["pid"]] = u
+				usageByPID[key] = u
 			}
 		case strings.HasPrefix(line, "gpu_memory_total_MiB{"):
 			labels := promLabels(line)
