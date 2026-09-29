@@ -54,6 +54,14 @@
 #        HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." ... docker compose -f beszel-agent-compose.yml up -d
 #    and add a matching volume under volumes: below, e.g.
 #      - /run/containerd/containerd.sock:/run/containerd/containerd.sock
+#    Container Logs for a CRI container additionally needs the directory the
+#    CRI runtime actually writes log files to bind-mounted read-only, at the
+#    same path -- crictl logs reads it directly off disk rather than
+#    streaming over the socket. Typically /var/log/pods on a kubelet-managed
+#    node regardless of CRI runtime. Without this, container names/Detail
+#    still work fine (those are metadata-only socket calls) but Logs stays
+#    empty, which looks like a different, unrelated problem:
+#      - /var/log/pods:/var/log/pods:ro
 #
 # 2. k8s node running nested inside another Docker container (e.g. a
 #    k3s-in-docker sandbox), where the socket lives in that container's own
