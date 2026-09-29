@@ -1,0 +1,40 @@
+# Slack live GPU dashboard -- posts one persistent message to a Slack
+# channel and keeps it updated in place (chat.update) instead of spamming a
+# new message every refresh. Pulls all cluster data from the Beszel hub's
+# own API (see deploy/docker/slack-monitor/slack_monitor/hub_client.py for
+# why -- host/GPU/process data all already lives there). Run this on
+# wingene-76 only, alongside the hub itself.
+#
+# Slack App setup (one-time, in your Slack workspace):
+#   1. https://api.slack.com/apps -> Create New App -> Blank app
+#   2. OAuth & Permissions -> Scopes -> Bot Token Scopes -> add chat:write only
+#   3. Install to Workspace, copy the Bot User OAuth Token (xoxb-...)
+#   4. Invite the app to the target channel: /invite @<app name>
+#   5. Get that channel's ID (right-click channel -> View channel details)
+#
+# Usage:
+#   cp .env.example .env
+#   # edit .env: fill in SLACK_BOT_TOKEN and SLACK_CHANNEL_ID from above,
+#   # plus USER_PASSWORD (same value beszel-hub-compose.yml uses -- this
+#   # service logs into the hub as the same account)
+#   docker compose -f slack-monitor-compose.yml up -d
+#
+# Do not commit SLACK_BOT_TOKEN. It only needs chat:write -- if you ever see
+# it requesting more than that, something's wrong; revoke and reinstall.
+services:
+  slack-monitor:
+    build:
+      context: ../docker/slack-monitor
+    container_name: gpu-slack-monitor
+    restart: unless-stopped
+    environment:
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:?set SLACK_BOT_TOKEN (see the setup steps above)}
+      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:?set SLACK_CHANNEL_ID}
+      - SLACK_REFRESH_INTERVAL_SECONDS=${SLACK_REFRESH_INTERVAL_SECONDS:-30}
+      - HUB_URL=${HUB_URL:-http://127.0.0.1:13000}
+      - HUB_EMAIL=${ACCOUNT_EMAIL:-wingene@internal.local}
+      - HUB_PASSWORD=${USER_PASSWORD:?set USER_PASSWORD in .env (same account beszel-hub-compose.yml creates)}
+      - DASHBOARD_URL=${APP_URL:-http://192.168.1.76:13000}
+      - STATE_PATH=/data/state.json
+    volumes:
+      - ../slack-monitor-data:/data
