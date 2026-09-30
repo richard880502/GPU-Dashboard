@@ -376,6 +376,18 @@ SMART_DEVICE_1=/dev/nvme0
 EOF
 ```
 
+Or, on a node behind a hardware RAID controller (`lsblk` shows `/dev/sda`
+etc. instead -- see above):
+
+```bash
+cat > .env.node <<'EOF'
+HOSTNAME=h30laimgpu05
+HUB_URL=http://192.168.1.76:13000
+HUB_SSH_PUBLIC_KEY=ssh-ed25519 AAAA_REPLACE_ME
+SMART_DEVICE_1=/dev/sda
+EOF
+```
+
 Edit the four values for the actual machine.
 
 Start the complete node stack:
