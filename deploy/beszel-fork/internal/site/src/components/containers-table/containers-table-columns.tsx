@@ -17,7 +17,7 @@ import {
 import { EthernetIcon, GpuIcon, HourglassIcon, SquareArrowRightEnterIcon } from "../ui/icons"
 import { Badge } from "../ui/badge"
 import { t } from "@lingui/core/macro"
-import { $allSystemsById, $longestSystemName } from "@/lib/stores"
+import { $allSystemsById } from "@/lib/stores"
 import { useStore } from "@nanostores/react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 
@@ -50,7 +50,7 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 		accessorFn: (record) => record.name,
 		header: ({ column }) => <HeaderButton column={column} name={t`Name`} Icon={ContainerIcon} />,
 		cell: ({ getValue }) => {
-			return <span className="ms-1.5 xl:w-48 block truncate">{getValue() as string}</span>
+			return <span className="ms-1.5 block w-full min-w-0 truncate">{getValue() as string}</span>
 		},
 	},
 	{
@@ -75,10 +75,9 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 		header: ({ column }) => <HeaderButton column={column} name={t`System`} Icon={ServerIcon} />,
 		cell: ({ getValue }) => {
 			const allSystems = useStore($allSystemsById)
-			const longestName = useStore($longestSystemName)
 			const name = allSystems[getValue() as string]?.name ?? ""
 			return (
-				<div className="ms-1 flex items-center gap-1.5">
+				<div className="ms-1 flex w-full min-w-0 items-center gap-1.5 overflow-hidden">
 					<span
 						className={cn(
 							"inline-block size-1.5 rounded-full shrink-0",
@@ -88,12 +87,9 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 							)
 						)}
 					/>
-					<div className="relative w-fit max-w-56">
-						<span className="invisible block whitespace-nowrap" aria-hidden="true">
-							{longestName.length > name.length ? longestName : name}
-						</span>
-						<span className="absolute inset-0 truncate font-medium">{name}</span>
-					</div>
+					<span className="min-w-0 flex-1 truncate font-medium" title={name}>
+						{name}
+					</span>
 				</div>
 			)
 		},
