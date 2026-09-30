@@ -26,7 +26,7 @@ import { memo, useMemo, useRef, useState } from "react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 import { isReadOnlyUser, pb } from "@/lib/api"
 import { BatteryState, ConnectionType, connectionTypeLabels, MeterState, SystemStatus } from "@/lib/enums"
-import { $longestSystemName, $systems, $userSettings } from "@/lib/stores"
+import { $systems, $userSettings } from "@/lib/stores"
 import {
 	cn,
 	copyToClipboard,
@@ -139,13 +139,12 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 			Icon: ServerIcon,
 			cell: (info) => {
 				const { name, id } = info.row.original
-				const longestName = useStore($longestSystemName)
 				const allSystems = useStore($systems)
 				const linkUrl = getPagePath($router, "system", { id })
 
 				return (
 					<>
-						<span className="flex gap-2 items-center font-medium text-sm text-nowrap md:ps-1">
+						<span className="flex w-full min-w-0 gap-2 items-center overflow-hidden font-medium text-sm text-nowrap md:ps-1">
 							<span
 								className={cn(
 									"shrink-0 size-2 rounded-full",
@@ -158,7 +157,7 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 							<Link
 								href={linkUrl}
 								tabIndex={-1}
-								className="relative w-fit max-w-48 z-10"
+								className="relative min-w-0 flex-1 truncate z-10"
 								onMouseEnter={(e) => {
 									// set title on hover if text is truncated to show full name
 									const a = e.currentTarget
@@ -169,15 +168,7 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 									}
 								}}
 							>
-								{/* size to whichever is longer: the shared longest-name-seen-so-far,
-									or this row's own name -- $longestSystemName is filled in
-									asynchronously as systems' realtime updates arrive, so early
-									renders can't rely on it alone without truncating this row's
-									own (possibly not-yet-"longest") name */}
-								<span className="invisible block" aria-hidden="true">
-									{longestName.length > name.length ? longestName : name}
-								</span>
-								<span className="absolute inset-0 truncate">{name}</span>
+								{name}
 							</Link>
 						</span>
 						<Link href={linkUrl} className="inset-0 absolute size-full" aria-label={name}></Link>
