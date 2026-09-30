@@ -341,6 +341,22 @@ Examples:
 /dev/sda
 ```
 
+Which one you get depends on the storage hardware, not the OS or brand of
+node -- it's not arbitrary:
+
+- **NVMe** drives attached directly (no hardware RAID controller in the
+  way) show up as `/dev/nvme0`, `/dev/nvme1`, ... -- one per physical drive.
+- **SAS/SATA drives behind a hardware RAID controller** (Dell PERC,
+  Broadcom MegaRAID, etc.) show up as `/dev/sda`, `/dev/sdb`, ... instead,
+  *even if the underlying drives are themselves SSDs* -- the controller is
+  what determines the device naming `lsblk` reports, not the drive
+  technology. `lsblk`'s `MODEL` column naming the controller itself (e.g.
+  "PERC H745 Adp") rather than a drive model number is the tell.
+
+Either way, this only ever gets confirmed by actually running `lsblk` on
+that specific host -- never inferred from what another host in the same
+cluster uses, even one that looks identical on paper.
+
 Do not blindly copy the disk path from another machine.
 
 ### Recommended: create a node `.env`
