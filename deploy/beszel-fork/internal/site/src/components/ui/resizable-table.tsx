@@ -51,7 +51,9 @@ export function ResizableTableHead<TData>({
 							className={cn("relative px-2", headClassName)}
 							style={getColumnWidthStyle(prefix, header.column.id)}
 						>
-							{header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+							<div className="min-w-0 overflow-hidden">
+								{header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+							</div>
 							{header.column.getCanResize() && (
 								<div
 									role="separator"
