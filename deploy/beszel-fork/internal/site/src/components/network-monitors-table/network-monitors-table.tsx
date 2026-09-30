@@ -3,6 +3,7 @@ import { t } from "@lingui/core/macro"
 import { Trans } from "@lingui/react/macro"
 import {
 	type ColumnFiltersState,
+	type ColumnSizingState,
 	flexRender,
 	getCoreRowModel,
 	getFilteredRowModel,
@@ -30,7 +31,8 @@ import { memo, useCallback, useMemo, useRef, useState } from "react"
 import { getMonitorColumns } from "@/components/network-monitors-table/network-monitors-columns"
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { TableBody, TableCell, TableRow } from "@/components/ui/table"
+import { ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
 import { useToast } from "@/components/ui/use-toast"
 import { isReadOnlyUser } from "@/lib/api"
 import { pb } from "@/lib/api"
@@ -72,6 +74,7 @@ export default function NetworkMonitorsTableNew({
 	)
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 	const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+	const [columnSizing, setColumnSizing] = usePersistedColumnSizing(`colsize-nm-${systemId ? 1 : 0}`)
 	const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
 	const [globalFilter, setGlobalFilter] = useState("")
 	const [deleteOpen, setDeleteOpen] = useState(false)
@@ -210,16 +213,20 @@ export default function NetworkMonitorsTableNew({
 		onSortingChange: setSorting,
 		onColumnFiltersChange: setColumnFilters,
 		onColumnVisibilityChange: setColumnVisibility,
+		onColumnSizingChange: setColumnSizing,
 		onRowSelectionChange: setRowSelection,
+		columnResizeMode: "onChange",
 		defaultColumn: {
 			sortUndefined: "last",
-			size: 900,
-			minSize: 0,
+			size: 140,
+			minSize: 50,
+			maxSize: 600,
 		},
 		state: {
 			sorting,
 			columnFilters,
 			columnVisibility,
+			columnSizing,
 			rowSelection,
 			globalFilter,
 		},
@@ -325,6 +332,7 @@ export default function NetworkMonitorsTableNew({
 					rows={rows}
 					colLength={visibleColumns.length}
 					rowSelection={rowSelection}
+					columnSizing={columnSizing}
 					isLoading={isLoading}
 				/>
 			</div>
@@ -337,12 +345,14 @@ const NetworkMonitorsTable = memo(function NetworkMonitorTable({
 	rows,
 	colLength,
 	rowSelection,
+	columnSizing,
 	isLoading,
 }: {
 	table: TableType<NetworkMonitorRecord>
 	rows: Row<NetworkMonitorRecord>[]
 	colLength: number
 	rowSelection: RowSelectionState
+	columnSizing: ColumnSizingState
 	isLoading: boolean
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null)
@@ -366,6 +376,7 @@ const NetworkMonitorsTable = memo(function NetworkMonitorTable({
 
 	const paddingTop = Math.max(0, virtualRows[0]?.start ?? 0 - virtualizer.options.scrollMargin)
 	const paddingBottom = Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0))
+	const columnSizeVars = useColumnSizeVars(table, columnSizing, "monitor-col")
 
 	return (
 		<div
@@ -374,10 +385,11 @@ const NetworkMonitorsTable = memo(function NetworkMonitorTable({
 				(!rows.length || rows.length > 2) && "min-h-50"
 			)}
 			ref={scrollRef}
+			style={columnSizeVars}
 		>
 			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
-				<table className="text-sm w-full h-full text-nowrap">
-					<NetworkMonitorTableHead table={table} />
+				<table className="text-sm min-w-full h-full text-nowrap table-fixed" style={{ width: table.getTotalSize() }}>
+					<ResizableTableHead table={table} prefix="monitor-col" />
 					<TableBody>
 						{rows.length ? (
 							virtualRows.map((virtualRow) => {
@@ -418,24 +430,6 @@ const NetworkMonitorsTable = memo(function NetworkMonitorTable({
 	)
 })
 
-function NetworkMonitorTableHead({ table }: { table: TableType<NetworkMonitorRecord> }) {
-	return (
-		<TableHeader className="sticky top-0 z-50 w-full border-b-2">
-			{table.getHeaderGroups().map((headerGroup) => (
-				<tr key={headerGroup.id}>
-					{headerGroup.headers.map((header) => {
-						return (
-							<TableHead className="px-2" key={header.id}>
-								{header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-							</TableHead>
-						)
-					})}
-				</tr>
-			))}
-		</TableHeader>
-	)
-}
-
 const NetworkMonitorTableRow = memo(function NetworkMonitorTableRow({
 	row,
 	virtualRow,
@@ -461,7 +455,7 @@ const NetworkMonitorTableRow = memo(function NetworkMonitorTableRow({
 					key={cell.id}
 					className="py-0"
 					style={{
-						width: `${cell.column.getSize()}px`,
+						...getColumnWidthStyle("monitor-col", cell.column.id),
 						height: virtualRow.size,
 					}}
 				>
