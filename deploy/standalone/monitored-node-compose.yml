@@ -8,6 +8,17 @@
 #     HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." SMART_DEVICE_1=/dev/nvme0 \
 #     docker compose -f monitored-node-compose.yml up -d
 #
+# Full example for a k8s node behind a MegaRAID/PERC controller (see
+# "Onboarding a new monitored node" in the top-level README.md for how each
+# of these values gets confirmed rather than guessed -- lsblk for the disk,
+# checking the socket/log dir actually exist for the CRI paths):
+#   HOSTNAME=h30laimgpu05 HUB_URL=http://192.168.8.144:13000 \
+#     HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." SMART_DEVICE_1=/dev/sda \
+#     CRI_SOCKET_PATH=/run/containerd/containerd.sock \
+#     CRI_MOUNT_PATH=/run/containerd/containerd.sock \
+#     CRI_LOG_PATH=/var/log/pods \
+#     docker compose -f monitored-node-compose.yml up -d
+#
 # HUB_SSH_PUBLIC_KEY is the public key Beszel's hub generates for itself on
 # first start (readable from the hub container's data dir, or from the
 # "Add system" dialog in the Beszel UI) -- it's public key material, safe
