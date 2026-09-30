@@ -69,7 +69,11 @@ On a monitored GPU node:
 ```bash
 cd ~/GPU-Dashboard/deploy/standalone
 
-docker compose -f monitored-node-compose.yml ps
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  ps
+
 docker logs --tail 100 beszel-agent
 docker logs --tail 100 nvitop-exporter
 docker logs --tail 100 gpu-process-exporter
@@ -98,7 +102,11 @@ Monitored node:
 
 ```bash
 cd ~/GPU-Dashboard/deploy/standalone
-docker compose -f monitored-node-compose.yml restart
+
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  restart
 ```
 
 Slack monitor:
