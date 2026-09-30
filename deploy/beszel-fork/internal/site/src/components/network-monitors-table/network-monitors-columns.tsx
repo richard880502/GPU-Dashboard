@@ -30,7 +30,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Trans } from "@lingui/react/macro"
-import { $allSystemsById, $longestSystemName } from "@/lib/stores"
+import { $allSystemsById } from "@/lib/stores"
 import { useStore } from "@nanostores/react"
 import { SystemStatus } from "@/lib/enums"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -60,18 +60,15 @@ const SYSTEM_STATUS_COLORS = {
 const isMuted = (record: NetworkMonitorRecord, systemRecord: SystemRecord | undefined) =>
 	!record.enabled || systemRecord?.status !== SystemStatus.Up
 
-export function getMonitorColumns(
-	longestTarget = "",
-	{
-		onEdit,
+export function getMonitorColumns({
+	onEdit,
 		onDelete,
 		onSetEnabled,
-	}: {
-		onEdit?: (monitor: NetworkMonitorRecord) => void
-		onDelete?: (monitors: NetworkMonitorRecord[]) => void | Promise<void>
-		onSetEnabled?: (monitors: NetworkMonitorRecord[], enabled: boolean) => void | Promise<void>
-	} = {}
-): ColumnDef<NetworkMonitorRecord>[] {
+}: {
+	onEdit?: (monitor: NetworkMonitorRecord) => void
+	onDelete?: (monitors: NetworkMonitorRecord[]) => void | Promise<void>
+	onSetEnabled?: (monitors: NetworkMonitorRecord[], enabled: boolean) => void | Promise<void>
+} = {}): ColumnDef<NetworkMonitorRecord>[] {
 	return [
 		{
 			id: "select",
@@ -115,20 +112,14 @@ export function getMonitorColumns(
 			header: ({ column }) => <HeaderButton column={column} name={t`System`} Icon={ServerIcon} />,
 			cell: ({ getValue }) => {
 				const system = useStore($allSystemsById)[getValue() as string] as SystemRecord | undefined
-				const longestSystemName = useStore($longestSystemName)
 				const name = system?.name
 				const status = system?.status as SystemStatus // undefined val is fine but makes lsp mad
 
 				return useMemo(
 					() => (
-						<div className="ms-1.5 max-w-44 flex gap-2 items-center tabular-nums">
+						<div className="ms-1.5 flex w-full min-w-0 gap-2 items-center overflow-hidden tabular-nums">
 							<span className={cn("shrink-0 size-2 rounded-full", SYSTEM_STATUS_COLORS[status])} />
-							<div className="relative w-fit min-w-0 max-w-full">
-								<span className="invisible block whitespace-nowrap" aria-hidden="true">
-									{longestSystemName.length > (name?.length ?? 0) ? longestSystemName : name}
-								</span>
-								<span className="absolute inset-0 truncate">{name}</span>
-							</div>
+							<span className="min-w-0 flex-1 truncate" title={name}>{name}</span>
 						</div>
 					),
 					[status, name]
@@ -151,14 +142,9 @@ export function getMonitorColumns(
 					color = "bg-yellow-500"
 				}
 				return (
-					<div className="ms-1.5 max-w-64 flex gap-2 items-center tabular-nums">
+					<div className="ms-1.5 flex w-full min-w-0 gap-2 items-center overflow-hidden tabular-nums">
 						<span className={cn("shrink-0 size-2 rounded-full", color)} />
-						<div className="relative w-fit min-w-0 max-w-full">
-							<span className="invisible block overflow-hidden whitespace-nowrap" aria-hidden="true">
-								{longestTarget}
-							</span>
-							<span className="absolute inset-0 truncate">{getValue() as string}</span>
-						</div>
+						<span className="min-w-0 flex-1 truncate" title={getValue() as string}>{getValue() as string}</span>
 					</div>
 				)
 			},
