@@ -188,6 +188,63 @@ ufw deny 5052/tcp
 Not yet applied — none of the 5 GPU boxes grant passwordless sudo to the deploy
 user, so `ufw` needs to be run interactively with the box's sudo password.
 
+## Onboarding a new monitored node: common gotchas
+
+Real trial-and-error from bringing up the H30LAIMGPU0x cluster's nodes with
+`monitored-node-compose.yml` / `beszel-agent-compose.yml`. None of this is
+specific to that cluster -- it applies to any new host.
+
+- **Always run `lsblk -d -o NAME,TYPE,SIZE,MODEL` before setting
+  `SMART_DEVICE_1`, never assume/copy another host's value.** Disk naming
+  varies per host even within the same physical cluster -- some nodes are
+  NVMe (`/dev/nvme0`, `/dev/nvme1`, ...), others are SAS/SATA behind a
+  MegaRAID/PERC controller (`/dev/sda`, `/dev/sdb`, ...). Guessing wrong
+  fails late, at container start (`error gathering device information ...
+  no such file or directory`), not at compose-file-parse time.
+
+- **On a k8s node, don't guess `CRI_SOCKET_PATH` either** -- confirm it
+  actually exists first:
+  ```bash
+  cat /etc/crictl.yaml   # often needs root; permission denied is fine, skip it
+  ls -la /run/containerd/containerd.sock /var/run/k3s/containerd/containerd.sock
+  ```
+  `/run/containerd/containerd.sock` and `/var/run/containerd/containerd.sock`
+  are usually the same file (`/var/run` is a symlink to `/run` on most
+  distros) -- either works as the bind-mount path.
+
+- **A CRI container's Logs needs `CRI_LOG_PATH` too, not just
+  `CRI_SOCKET_PATH`/`CRI_MOUNT_PATH`.** `crictl logs` reads the log file
+  directly off disk (typically `/var/log/pods` on any kubelet-managed node)
+  rather than streaming it over the CRI socket -- without this bind-mounted
+  in (read-only, same path on both sides), container names and the Detail
+  pane work fine (pure socket metadata calls) while Logs alone stays empty,
+  which looks like an unrelated problem. See the comment above
+  `beszel-agent`'s `volumes:` in either compose file.
+
+- **`docker compose down` re-parses the whole file too**, including every
+  required (`${VAR:?...}`) variable -- it fails with the same
+  "variable is missing a value" error `up` would if you don't pass the same
+  env vars again. If you started the stack with inline env vars instead of
+  a `.env` file, you need to repeat them for `down`, `pull`, and anything
+  else, not just `up`. Save yourself the repetition: write a `.env` in the
+  same directory once (see either compose file's own `Usage` comment for
+  the exact variable names), and every subsequent command just works with
+  no prefix needed. Don't recall the original value? Read it back off the
+  running container instead of re-guessing:
+  ```bash
+  docker inspect beszel-agent --format '{{range .Config.Env}}{{println .}}{{end}}'
+  ```
+
+- **A stray character from an interactive `vim` edit can silently break the
+  YAML** (e.g. `image: ...:v2.7.6:` -- an extra trailing `:` left over from
+  editing the version tag) and only surfaces later as a cryptic
+  `go-yaml load error ... mapping values are not allowed in this context`
+  pointing at a line/column, not at "you have a typo." After any manual
+  edit, sanity-check the specific line before rerunning `up`:
+  ```bash
+  sed -n '<line>p' monitored-node-compose.yaml
+  ```
+
 ## Deployment notes (still-relevant history from the original Prometheus/Grafana build)
 
 - **Exporters run in Docker, not systemd.** None of the 5 GPU servers grant
