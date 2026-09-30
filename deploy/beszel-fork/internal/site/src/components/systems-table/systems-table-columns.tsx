@@ -453,6 +453,7 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		},
 		{
 			id: "actions",
+			enableResizing: false,
 			// @ts-expect-error
 			name: () => t({ message: "Actions", comment: "Table column" }),
 			size: 50,
