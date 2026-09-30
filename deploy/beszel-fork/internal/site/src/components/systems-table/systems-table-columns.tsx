@@ -96,8 +96,8 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 	return [
 		{
 			// size: 200,
-			size: 100,
-			minSize: 0,
+			size: 140,
+			minSize: 100,
 			accessorKey: "name",
 			id: "system",
 			name: () => t`System`,
@@ -457,6 +457,8 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 			// @ts-expect-error
 			name: () => t({ message: "Actions", comment: "Table column" }),
 			size: 50,
+			minSize: 50,
+			maxSize: 50,
 			cell: ({ row }) => (
 				<div className="relative z-10 flex justify-end items-center gap-1 -ms-3">
 					<AlertButton system={row.original} />
