@@ -39,7 +39,6 @@ import { pb } from "@/lib/api"
 import { $allSystemsById, $direction, $userSettings } from "@/lib/stores"
 import {
 	cn,
-	isVisuallyLonger,
 	matchesFilterGroups,
 	parseFilterGroups,
 	parseSemVer,
@@ -83,16 +82,6 @@ export default function NetworkMonitorsTableNew({
 
 	const { toast } = useToast()
 	const canManageMonitors = !isReadOnlyUser()
-
-	const longestTarget = useMemo(() => {
-		let longestTarget = ""
-		for (const p of monitors) {
-			if (isVisuallyLonger(getMonitorTarget(p), longestTarget)) {
-				longestTarget = getMonitorTarget(p)
-			}
-		}
-		return longestTarget
-	}, [monitors])
 
 	const runMonitorBatch = useCallback(
 		async (ids: string[], enqueue: (batch: ReturnType<typeof pb.createBatch>, id: string) => void) => {
@@ -193,7 +182,7 @@ export default function NetworkMonitorsTableNew({
 	)
 
 	const columns = useMemo(() => {
-		let columns = getMonitorColumns(longestTarget, {
+		let columns = getMonitorColumns({
 			onEdit: setEditingMonitor,
 			onDelete: handleDeleteRequest,
 			onSetEnabled: handleSetEnabled,
@@ -201,7 +190,7 @@ export default function NetworkMonitorsTableNew({
 		columns = systemId ? columns.filter((col) => col.id !== "system") : columns
 		columns = canManageMonitors ? columns : columns.filter((col) => col.id !== "actions")
 		return columns
-	}, [canManageMonitors, handleDeleteRequest, handleSetEnabled, systemId, longestTarget])
+	}, [canManageMonitors, handleDeleteRequest, handleSetEnabled, systemId])
 
 	const table = useReactTable({
 		data: monitors,
@@ -453,7 +442,7 @@ const NetworkMonitorTableRow = memo(function NetworkMonitorTableRow({
 			{row.getVisibleCells().map((cell) => (
 				<TableCell
 					key={cell.id}
-					className="py-0"
+					className="py-0 overflow-hidden"
 					style={{
 						...getColumnWidthStyle("monitor-col", cell.column.id),
 						height: virtualRow.size,
