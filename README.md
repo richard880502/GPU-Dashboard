@@ -1,277 +1,783 @@
-# GPU Monitoring
+# GPU Dashboard
 
-GPU cluster monitoring (`wingene-76` … `wingene-80`, `192.168.1.76-80`), built on
-`nvitop-exporter` + a custom `gpu-process-exporter` for GPU-to-container
-attribution, presented through **Beszel** — specifically, this project's own fork
-of it (`deploy/beszel-fork/`), which adds native PID→Docker-container GPU
-attribution and a per-GPU process drill-down that upstream Beszel doesn't have.
-The monitoring stack itself (Beszel hub) runs on `wingene-76` (`192.168.1.76`).
+Centralized NVIDIA GPU cluster monitoring built on **Beszel**, **nvitop-exporter**, and a custom **gpu-process-exporter**.
 
-**Status: Beszel is the primary/only dashboard as of 2026-09-23.** The earlier
-Prometheus + Grafana + nginx stack has been decommissioned (see
-`docs/beszel-integration-research.md` for the full history of why Beszel was
-piloted, what gap the fork closes, and every bug found/fixed along the way).
+The dashboard is designed for shared GPU servers where `nvidia-smi` alone is not enough. Besides GPU utilization, VRAM, temperature, and power, it can answer:
 
-## Layout
+> **Which user, process, Docker container, or Kubernetes pod is using this GPU?**
 
-```
-gpu-monitoring/
-├── inventory/servers.yaml      # GPU server list
-├── deploy/
-│   ├── install-exporter.sh     # run on each GPU server — deploys the exporters below
-│   ├── build-images.sh         # builds/publishes the two exporter images
-│   ├── docker/
-│   │   ├── nvitop-exporter/Dockerfile
-│   │   └── gpu-process-exporter/{Dockerfile,gpu_process_exporter.py}
-│   ├── standalone/
-│   │   ├── exporter-compose.yml        # nvitop-exporter + gpu-process-exporter
-│   │   ├── beszel-hub-compose.yml      # Beszel hub — run on the monitoring server only
-│   │   └── beszel-agent-compose.yml    # Beszel agent — run on every GPU server
-│   └── beszel-fork/            # vendored github.com/henrygd/beszel + our GPU/container patches
-└── docs/beszel-integration-research.md   # why Beszel, the fork's design, every bug fixed
-```
+This repository contains the Beszel fork, GPU exporters, Docker Compose files, and operational commands used by the current cluster.
 
-## 1. On each GPU server (192.168.1.76 / .77 / .78 / .79 / .80)
+## Features
 
-Two ways to get the two custom exporter images running — pick one:
+- Multi-node NVIDIA GPU monitoring from one web dashboard
+- GPU utilization, VRAM, temperature, power, and per-process metrics
+- PID → Linux user attribution
+- PID → Docker container attribution
+- PID → Kubernetes / CRI container and pod attribution
+- Per-GPU process drill-down in the Beszel UI
+- SMART disk monitoring through the Beszel agent
+- Optional Slack live GPU dashboard
+- Docker Compose based deployment with published GHCR images
 
-### Option A: pull the published images (fastest, no repo checkout needed)
+## Current deployment
 
-```bash
-docker pull ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.1.1
-docker pull ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.1.1
+| Role | Host |
+| --- | --- |
+| Beszel Hub | `wingene-76` / `192.168.1.76:13000` |
+| GPU nodes | `wingene-76` … `wingene-80` |
+| Beszel Agent | `:45876` on every monitored node |
+| nvitop-exporter | `:5051` on every monitored node |
+| gpu-process-exporter | `:5052` on every monitored node |
 
-docker run -d --name nvitop-exporter --restart=always --gpus all --pid host \
-    -v /etc/passwd:/etc/passwd:ro \
-    -p 5051:5050 ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.1.1 \
-    --bind-address 0.0.0.0 --port 5050 --hostname wingene-76
+The current inventory is in [`inventory/servers.yaml`](inventory/servers.yaml).
 
-docker run -d --name gpu-process-exporter --restart=always --gpus all --pid host \
-    -e EXPORTER_HOSTNAME=wingene-76 \
-    -v /var/run/docker.sock:/var/run/docker.sock:ro \
-    -v /etc/passwd:/etc/passwd:ro \
-    -p 5052:5052 ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.1.1
-```
+---
 
-The `/etc/passwd` mount is read-only and lets each exporter resolve real
-usernames from the host's own user database instead of falling back to raw
-UIDs (see the research doc's bug #7 for why this is needed).
+# Command cheat sheet
 
-Swap `wingene-76` for the actual hostname of whichever box you're on. Images are
-public — no `docker login` needed to pull.
+These are the commands you will use most often.
 
-### Option B: build from source (if you've changed the exporter code)
+## Update the repository
 
 ```bash
-scp -r deploy richard@192.168.1.76:/tmp/deploy
-ssh richard@192.168.1.76 '/tmp/deploy/install-exporter.sh wingene-76'
+cd ~/GPU-Dashboard
+git pull --ff-only origin main
 ```
 
-Repeat either option for `.77`/`wingene-77`, `.78`/`wingene-78`, `.79`/`wingene-79`,
-`.80`/`wingene-80`. Either way you end up with two containers running:
-
-- **nvitop-exporter** (`:5051`, `--gpus all --pid host`) — GPU/host metrics
-  (util, VRAM, temp, power, CPU%, RAM%), including per-process GPU
-  memory/utilization.
-- **gpu-process-exporter** (`:5052`, `--gpus all --pid host`) — a small custom
-  exporter that maps each GPU-using PID to the Docker container it's running
-  in (via `/proc/<pid>/cgroup` + the Docker API), so the dashboard can answer
-  "whose container is holding this GPU" without SSH-ing in to run `docker ps`
-  by hand. Needs `/var/run/docker.sock` mounted read-only. On a Kubernetes
-  node (containerd/CRI-O runtime, so k8s pods aren't visible on the Docker
-  socket at all), also set `CRI_SOCKET_PATH` to attribute those to their
-  pod/container via `crictl` instead of falling back to `"host"` — see
-  `deploy/standalone/exporter-compose.yml`.
-
-(A third container, `node-exporter`, used to run alongside these for a
-Grafana host-metrics panel from back when Beszel was still a side-by-side
-pilot. Removed 2026-09 -- beszel-agent collects the same host metrics
-natively, Beszel is the primary dashboard now, and nothing was scraping
-node-exporter's `:9100` anymore anyway.)
-
-Verify either option worked:
+If the repo is not cloned yet:
 
 ```bash
-curl http://192.168.1.76:5051/metrics | head
-curl http://192.168.1.76:5052/metrics | head
+git clone https://github.com/richard880502/GPU-Dashboard.git
+cd GPU-Dashboard
 ```
 
-## 2. Beszel (monitoring server + every GPU server)
+## Check the current stack
 
-Images are published to GHCR (`ghcr.io/richard880502/gpu-dashboard/beszel-hub`
-and `beszel-agent-nvidia`, both public, currently `v2.0.0`) — no build step
-needed unless you've changed `deploy/beszel-fork`.
-
-### 2a. Start the hub (monitoring server, `192.168.1.76`, once)
+On the hub:
 
 ```bash
-mkdir -p deploy/beszel/data && chmod 777 deploy/beszel/data
+cd ~/GPU-Dashboard/deploy/standalone
+
+docker compose -f beszel-hub-compose.yml ps
+docker logs --tail 100 beszel
+curl -sS http://127.0.0.1:13000 >/dev/null && echo "Beszel hub OK"
+```
+
+On a monitored GPU node:
+
+```bash
+cd ~/GPU-Dashboard/deploy/standalone
+
+docker compose -f monitored-node-compose.yml ps
+docker logs --tail 100 beszel-agent
+docker logs --tail 100 nvitop-exporter
+docker logs --tail 100 gpu-process-exporter
+
+curl -fsS http://127.0.0.1:5051/metrics >/dev/null && echo "nvitop-exporter OK"
+curl -fsS http://127.0.0.1:5052/metrics >/dev/null && echo "gpu-process-exporter OK"
+```
+
+GPU sanity check:
+
+```bash
+nvidia-smi
+docker exec beszel-agent nvidia-smi
+```
+
+## Restart services
+
+Hub:
+
+```bash
+cd ~/GPU-Dashboard/deploy/standalone
+docker compose -f beszel-hub-compose.yml restart
+```
+
+Monitored node:
+
+```bash
+cd ~/GPU-Dashboard/deploy/standalone
+docker compose -f monitored-node-compose.yml restart
+```
+
+Slack monitor:
+
+```bash
+cd ~/GPU-Dashboard/deploy/standalone
+docker compose -f slack-monitor-compose.yml restart
+```
+
+## Pull the versions pinned by the compose files and recreate
+
+Hub:
+
+```bash
+cd ~/GPU-Dashboard
+git pull --ff-only origin main
 cd deploy/standalone
-cp .env.example .env   # set a real USER_PASSWORD
+
+docker compose -f beszel-hub-compose.yml pull
 docker compose -f beszel-hub-compose.yml up -d
 ```
 
-The account email (`wingene@internal.local`) and `AUTO_LOGIN` are fixed in
-the compose file — only the password is a secret, kept in the gitignored
-`.env`. The email doesn't need to be real/reachable; PocketBase's own user
-model just requires an email-shaped identity field, and `AUTO_LOGIN` works
-by exact string match against it, not by sending anything. Password only
-matters on first run (creates the account); ignored on later runs.
-
-Confirm it's up: `curl -s http://192.168.1.76:13000` should return HTML.
-
-### 2b. Start the agent (every GPU server, including .76 itself)
-
-The agent needs the hub's public key. Grab it once (from the monitoring
-server, or anywhere that can reach it):
+Monitored node (recommended `.env.node` workflow):
 
 ```bash
-TOKEN=$(curl -s -X POST http://192.168.1.76:13000/api/collections/users/auth-with-password \
-  -H 'Content-Type: application/json' \
-  -d '{"identity":"wingene@internal.local","password":"<the USER_PASSWORD from .env>"}' \
-  | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
-curl -s http://192.168.1.76:13000/api/beszel/getkey -H "Authorization: Bearer $TOKEN"
-# -> {"key":"ssh-ed25519 AAAA...", ...}
+cd ~/GPU-Dashboard
+git pull --ff-only origin main
+cd deploy/standalone
+
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  pull
+
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  up -d
 ```
 
-Then on each GPU server:
+If the node was started with inline variables instead, repeat those variables when running `up`, `down`, `pull`, or other Compose commands.
+
+To inspect the environment of an already-running agent:
 
 ```bash
+docker inspect beszel-agent \
+  --format '{{range .Config.Env}}{{println .}}{{end}}'
+```
+
+---
+
+# Fresh deployment
+
+The recommended layout is:
+
+```text
+                    ┌────────────────────────────┐
+                    │         Beszel Hub         │
+                    │      Web UI :13000         │
+                    └─────────────┬──────────────┘
+                                  │
+                 ┌────────────────┼────────────────┐
+                 │                │                │
+                 ▼                ▼                ▼
+            GPU Node 1       GPU Node 2       GPU Node N
+            ──────────       ──────────       ──────────
+            Beszel Agent     Beszel Agent     Beszel Agent
+            nvitop exporter  nvitop exporter  nvitop exporter
+            process exporter process exporter process exporter
+```
+
+For a new node, prefer [`deploy/standalone/monitored-node-compose.yml`](deploy/standalone/monitored-node-compose.yml). It starts all three node-side services together.
+
+## 0. Prerequisites
+
+Each GPU node should have:
+
+- Linux
+- NVIDIA driver
+- Docker Engine
+- Docker Compose plugin
+- NVIDIA Container Toolkit
+
+Quick check:
+
+```bash
+nvidia-smi
+docker --version
+docker compose version
+docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi
+```
+
+Clone the project:
+
+```bash
+git clone https://github.com/richard880502/GPU-Dashboard.git
+cd GPU-Dashboard
+```
+
+## 1. Start the Beszel Hub
+
+Run this once on the monitoring server.
+
+For the current deployment, the hub is `wingene-76` (`192.168.1.76`).
+
+```bash
+cd ~/GPU-Dashboard
+git pull --ff-only origin main
+cd deploy/standalone
+
+cp -n .env.example .env
+```
+
+Edit `.env` and set at least:
+
+```dotenv
+USER_PASSWORD=replace-with-a-real-password
+```
+
+The current compose file stores PocketBase/Beszel data on local disk at:
+
+```text
+/tmp2/richard/beszel-hub-data
+```
+
+Create it before the first start:
+
+```bash
+mkdir -p /tmp2/richard/beszel-hub-data
+chmod 777 /tmp2/richard/beszel-hub-data
+```
+
+Then start the hub:
+
+```bash
+docker compose -f beszel-hub-compose.yml pull
+docker compose -f beszel-hub-compose.yml up -d
+```
+
+Verify:
+
+```bash
+docker compose -f beszel-hub-compose.yml ps
+docker logs --tail 100 beszel
+curl -sS http://127.0.0.1:13000 | head
+```
+
+Open:
+
+```text
+http://192.168.1.76:13000
+```
+
+### Using a different hub host
+
+The compose defaults are for the current `wingene` cluster. For another cluster, override `APP_URL` and `ACCOUNT_EMAIL`, and change the host-side data path in `beszel-hub-compose.yml`.
+
+Example:
+
+```bash
+APP_URL=http://10.0.0.10:13000 \
+ACCOUNT_EMAIL=gpu@internal.local \
+USER_PASSWORD='replace-with-a-real-password' \
+docker compose -f beszel-hub-compose.yml up -d
+```
+
+## 2. Get the Hub SSH public key
+
+Every Beszel agent needs the hub's public key.
+
+The easiest method is to open **Add System** in the Beszel UI and copy the key.
+
+You can also retrieve it from the API.
+
+From the hub host:
+
+```bash
+cd ~/GPU-Dashboard/deploy/standalone
+set -a
+source .env
+set +a
+
+TOKEN=$(
+  curl -fsS -X POST \
+    http://127.0.0.1:13000/api/collections/users/auth-with-password \
+    -H 'Content-Type: application/json' \
+    -d "{\"identity\":\"${ACCOUNT_EMAIL:-wingene@internal.local}\",\"password\":\"${USER_PASSWORD}\"}" \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
+)
+
+curl -fsS \
+  http://127.0.0.1:13000/api/beszel/getkey \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The result contains something similar to:
+
+```text
+ssh-ed25519 AAAA...
+```
+
+Use that value as `HUB_SSH_PUBLIC_KEY` on every monitored node.
+
+## 3. Prepare a GPU node
+
+First identify the host and its base disk device.
+
+```bash
+hostname
+nvidia-smi -L
+lsblk -d -o NAME,TYPE,SIZE,MODEL
+```
+
+For SMART monitoring, use a **base device**, not a partition.
+
+Examples:
+
+```text
+/dev/nvme0
+/dev/sda
+```
+
+Do not blindly copy the disk path from another machine.
+
+### Recommended: create a node `.env`
+
+Using a `.env` file makes later `up`, `down`, `pull`, and restart operations much easier.
+
+On the GPU node:
+
+```bash
+cd ~/GPU-Dashboard/deploy/standalone
+
+cat > .env.node <<'EOF'
+HOSTNAME=wingene-77
+HUB_URL=http://192.168.1.76:13000
+HUB_SSH_PUBLIC_KEY=ssh-ed25519 AAAA_REPLACE_ME
+SMART_DEVICE_1=/dev/nvme0
+EOF
+```
+
+Edit the four values for the actual machine.
+
+Start the complete node stack:
+
+```bash
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  pull
+
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  up -d
+```
+
+Verify:
+
+```bash
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  ps
+
+curl -fsS http://127.0.0.1:5051/metrics >/dev/null && echo "nvitop-exporter OK"
+curl -fsS http://127.0.0.1:5052/metrics >/dev/null && echo "gpu-process-exporter OK"
+```
+
+### Same deployment without `.env.node`
+
+```bash
+HOSTNAME=wingene-77 \
+HUB_URL=http://192.168.1.76:13000 \
 HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." \
-  docker compose -f deploy/standalone/beszel-agent-compose.yml up -d
+SMART_DEVICE_1=/dev/nvme0 \
+docker compose -f monitored-node-compose.yml up -d
 ```
 
-`GPU_COLLECTOR=nvidia-smi` in the agent compose file is required, not
-optional — Beszel's own NVML collector silently drops GPU temperature on some
-hosts (an ignored NVML return code); `nvidia-smi` was verified reliable on
-every host in this cluster. Don't remove it when redeploying.
+## 4. Register the node in Beszel
 
-### 2c. Register each system with the hub
+Starting the agent does not automatically create a system record in the hub.
 
-The agent alone doesn't make it show up — the hub only tries connecting to
-hosts it already knows about. Easiest: open `http://192.168.1.76:13000`,
-log in (email/password from step 2a), click **Add System**, and fill in the
-hostname/IP (agent port defaults to `45876`). Repeat once per GPU server.
+In the dashboard:
 
-To script this instead (what was actually used to bring up all 5 hosts at
-once):
+1. Open `http://192.168.1.76:13000`
+2. Click **Add System**
+3. Enter the node name/IP
+4. Use agent port `45876`
+5. Save
+
+The system should move from `pending` to `up` after the hub connects successfully.
+
+## 5. Kubernetes / containerd node
+
+Kubernetes pods are not visible through Docker's socket, so a Kubernetes node also needs CRI access.
+
+Find the real CRI socket:
 
 ```bash
-curl -s -X POST http://192.168.1.76:13000/api/collections/systems/records \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"name":"wingene-76","host":"192.168.1.76","port":"45876","users":["<user id, from the auth response above>"]}'
+cat /etc/crictl.yaml 2>/dev/null || true
+
+ls -la \
+  /run/containerd/containerd.sock \
+  /var/run/containerd/containerd.sock \
+  /var/run/k3s/containerd/containerd.sock 2>/dev/null
 ```
 
-Status goes `pending` → `up` within ~10s once the hub successfully connects.
-
-### 2d. Open the dashboard
-
-`http://192.168.1.76:13000` — home page shows a cluster-wide GPU summary
-card, a per-GPU status table (click a row to see what's running on that GPU,
-including plain host processes not in any container), and the stock Beszel
-systems/containers views. `AUTO_LOGIN` skips the login screen for the
-internal network, same approach used for the old Grafana setup.
-
-## 3. Firewall
-
-`nvitop-exporter:5051` and `gpu-process-exporter:5052` should only be
-reachable from the monitoring server, not from general users. On each GPU
-server:
+Confirm the pod log directory if you want CRI container logs in Beszel:
 
 ```bash
-ufw allow from 192.168.1.76 to any port 5051 proto tcp
-ufw allow from 192.168.1.76 to any port 5052 proto tcp
-ufw deny 5051/tcp
-ufw deny 5052/tcp
+ls -ld /var/log/pods
 ```
 
-Not yet applied — none of the 5 GPU boxes grant passwordless sudo to the deploy
-user, so `ufw` needs to be run interactively with the box's sudo password.
+Example `.env.node` for a normal containerd node:
 
-## Onboarding a new monitored node: common gotchas
+```dotenv
+HOSTNAME=h30laimgpu05
+HUB_URL=http://192.168.1.76:13000
+HUB_SSH_PUBLIC_KEY=ssh-ed25519 AAAA_REPLACE_ME
+SMART_DEVICE_1=/dev/sda
 
-Real trial-and-error from bringing up the H30LAIMGPU0x cluster's nodes with
-`monitored-node-compose.yml` / `beszel-agent-compose.yml`. None of this is
-specific to that cluster -- it applies to any new host.
+CRI_SOCKET_PATH=/run/containerd/containerd.sock
+CRI_MOUNT_PATH=/run/containerd/containerd.sock
+CRI_LOG_PATH=/var/log/pods
+```
 
-- **Always run `lsblk -d -o NAME,TYPE,SIZE,MODEL` before setting
-  `SMART_DEVICE_1`, never assume/copy another host's value.** Disk naming
-  varies per host even within the same physical cluster -- some nodes are
-  NVMe (`/dev/nvme0`, `/dev/nvme1`, ...), others are SAS/SATA behind a
-  MegaRAID/PERC controller (`/dev/sda`, `/dev/sdb`, ...). Guessing wrong
-  fails late, at container start (`error gathering device information ...
-  no such file or directory`), not at compose-file-parse time.
+Start it:
 
-- **On a k8s node, don't guess `CRI_SOCKET_PATH` either** -- confirm it
-  actually exists first:
-  ```bash
-  cat /etc/crictl.yaml   # often needs root; permission denied is fine, skip it
-  ls -la /run/containerd/containerd.sock /var/run/k3s/containerd/containerd.sock
-  ```
-  `/run/containerd/containerd.sock` and `/var/run/containerd/containerd.sock`
-  are usually the same file (`/var/run` is a symlink to `/run` on most
-  distros) -- either works as the bind-mount path.
+```bash
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  up -d
+```
 
-- **A CRI container's Logs needs `CRI_LOG_PATH` too, not just
-  `CRI_SOCKET_PATH`/`CRI_MOUNT_PATH`.** `crictl logs` reads the log file
-  directly off disk (typically `/var/log/pods` on any kubelet-managed node)
-  rather than streaming it over the CRI socket -- without this bind-mounted
-  in (read-only, same path on both sides), container names and the Detail
-  pane work fine (pure socket metadata calls) while Logs alone stays empty,
-  which looks like an unrelated problem. See the comment above
-  `beszel-agent`'s `volumes:` in either compose file.
+This enables both:
 
-- **`docker compose down` re-parses the whole file too**, including every
-  required (`${VAR:?...}`) variable -- it fails with the same
-  "variable is missing a value" error `up` would if you don't pass the same
-  env vars again. If you started the stack with inline env vars instead of
-  a `.env` file, you need to repeat them for `down`, `pull`, and anything
-  else, not just `up`. Save yourself the repetition: write a `.env` in the
-  same directory once (see either compose file's own `Usage` comment for
-  the exact variable names), and every subsequent command just works with
-  no prefix needed. Don't recall the original value? Read it back off the
-  running container instead of re-guessing:
-  ```bash
-  docker inspect beszel-agent --format '{{range .Config.Env}}{{println .}}{{end}}'
-  ```
+- Beszel CRI container visibility / logs
+- GPU process → Kubernetes pod/container attribution
 
-- **A stray character from an interactive `vim` edit can silently break the
-  YAML** (e.g. `image: ...:v2.7.6:` -- an extra trailing `:` left over from
-  editing the version tag) and only surfaces later as a cryptic
-  `go-yaml load error ... mapping values are not allowed in this context`
-  pointing at a line/column, not at "you have a typo." After any manual
-  edit, sanity-check the specific line before rerunning `up`:
-  ```bash
-  sed -n '<line>p' monitored-node-compose.yaml
-  ```
+### Nested k3s/containerd inside another Docker container
 
-## Deployment notes (still-relevant history from the original Prometheus/Grafana build)
+If the Kubernetes runtime socket lives inside another Docker container, use `CRI_EXEC_CONTAINER` instead of trying to bind-mount that socket.
 
-- **Exporters run in Docker, not systemd.** None of the 5 GPU servers grant
-  passwordless sudo to the `richard` account, so exporters run as
-  `--restart=always` containers instead — auto-start, auto-restart, no root
-  needed.
-- **nvitop-exporter's port is 5051, not 5050.** Port `5050` was already bound by
-  other services on `.78` and `.79`. Using `5051` everywhere avoids both
-  conflicts and keeps things uniform across all 5 hosts.
-- **`--hostname` flag:** `nvitop-exporter` defaults to labelling metrics with
-  its own container's internal IP, not the real machine name — each container
-  is started with `--hostname wingene-XX` explicitly.
-- **`gpu-process-exporter` is a custom addition**, not part of `nvitop-exporter`
-  itself. It replicates a PID→container lookup (via `/proc/<pid>/cgroup` + the
-  Docker API) and emits a `gpu_process_container_info` metric with the same
-  label set `nvitop-exporter` uses for its own per-process metrics, which is
-  what the Beszel fork's `agent/gpu_process_container.go` joins against.
+Example:
 
-## What's deliberately not in this version
+```bash
+HOSTNAME=gpu-node \
+HUB_URL=http://192.168.1.76:13000 \
+HUB_SSH_PUBLIC_KEY="ssh-ed25519 AAAA..." \
+SMART_DEVICE_1=/dev/nvme0 \
+CRI_SOCKET_PATH=/run/k3s/containerd/containerd.sock \
+CRI_EXEC_CONTAINER=sandbox-docker \
+docker compose -f monitored-node-compose.yml up -d
+```
 
-AlertManager-style notification routing, OAuth/LDAP/SSO in front of the
-dashboard, Kubernetes/service discovery, Triton/vLLM metrics.
+## 6. Unified-memory ARM64 NVIDIA systems
 
-## Known gaps to fill in
+Most amd64 GPU nodes use:
 
-- Firewall rule above — needs interactive sudo on each GPU box.
-- No backup mechanism for the Beszel hub's SQLite database
-  (`deploy/beszel/data/`).
-- No arm64 build yet for Beszel's images (needed if wingene-82 joins this
-  stack; the two exporters already support it).
+```text
+GPU_COLLECTOR=nvidia-smi
+```
+
+For unified-memory systems such as GB10, use both collectors:
+
+```bash
+GPU_COLLECTOR=nvml,nvidia-smi \
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  up -d
+```
+
+This is needed because `nvidia-smi` CLI memory fields can be unavailable on those systems while NVML still reports usable memory data.
+
+## 7. Firewall
+
+On every monitored GPU node, only the hub should need access to exporter ports.
+
+For the current hub:
+
+```bash
+sudo ufw allow from 192.168.1.76 to any port 5051 proto tcp
+sudo ufw allow from 192.168.1.76 to any port 5052 proto tcp
+sudo ufw deny 5051/tcp
+sudo ufw deny 5052/tcp
+```
+
+The Beszel agent also listens on `45876`; allow that from the hub if the node firewall blocks it:
+
+```bash
+sudo ufw allow from 192.168.1.76 to any port 45876 proto tcp
+```
+
+---
+
+# Slack live GPU dashboard
+
+`deploy/standalone/slack-monitor-compose.yml` can maintain one persistent GPU status message in Slack and update it in place.
+
+## Initial setup
+
+Create a Slack App and give the bot `chat:write`, install it to the workspace, invite it to the target channel, then collect:
+
+- Bot token: `xoxb-...`
+- Channel ID: `C...`
+
+On the hub host:
+
+```bash
+cd ~/GPU-Dashboard/deploy/standalone
+cp -n .env.example .env
+```
+
+Set:
+
+```dotenv
+USER_PASSWORD=the-same-password-used-by-beszel
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_CHANNEL_ID=C...
+```
+
+Start it:
+
+```bash
+docker compose -f slack-monitor-compose.yml up -d --build
+```
+
+Useful commands:
+
+```bash
+docker compose -f slack-monitor-compose.yml ps
+docker logs -f gpu-slack-monitor
+docker compose -f slack-monitor-compose.yml restart
+```
+
+After changing Slack App settings, force a fresh session with:
+
+```bash
+docker compose -f slack-monitor-compose.yml restart
+```
+
+Read the persisted Slack message state:
+
+```bash
+docker exec gpu-slack-monitor cat /data/state.json
+```
+
+---
+
+# Exporters only
+
+Normally use `monitored-node-compose.yml`. If you only want the two GPU exporters, use `exporter-compose.yml`.
+
+Plain Docker host:
+
+```bash
+cd ~/GPU-Dashboard/deploy/standalone
+
+HOSTNAME=wingene-77 \
+docker compose -f exporter-compose.yml up -d
+```
+
+Kubernetes/containerd host:
+
+```bash
+CRI_SOCKET_PATH=/run/containerd/containerd.sock \
+CRI_MOUNT_PATH=/run/containerd/containerd.sock \
+HOSTNAME=gpu-node \
+docker compose -f exporter-compose.yml up -d
+```
+
+Verify:
+
+```bash
+curl -fsS http://127.0.0.1:5051/metrics | head
+curl -fsS http://127.0.0.1:5052/metrics | head
+```
+
+---
+
+# Build images from source
+
+Published images are normally enough. Build from source only when changing exporter code.
+
+Validate both amd64 and arm64 builds:
+
+```bash
+cd ~/GPU-Dashboard
+VERSION=v1.5.0 ./deploy/build-images.sh
+```
+
+Build and push to GHCR:
+
+```bash
+docker login ghcr.io
+
+docker run --privileged --rm \
+  tonistiigi/binfmt --install all
+
+VERSION=v1.5.0 ./deploy/build-images.sh --push
+```
+
+`build-images.sh` builds both:
+
+```text
+ghcr.io/richard880502/gpu-dashboard/nvitop-exporter
+ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter
+```
+
+---
+
+# Troubleshooting command cookbook
+
+## Compose says a required variable is missing
+
+Check what the compose file resolves to:
+
+```bash
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  config
+```
+
+If the service is already running, inspect its current environment:
+
+```bash
+docker inspect beszel-agent \
+  --format '{{range .Config.Env}}{{println .}}{{end}}'
+```
+
+## Agent is running but the system is `pending`
+
+Check the agent:
+
+```bash
+docker logs --tail 200 beszel-agent
+ss -lntp | grep 45876
+```
+
+From the hub, test network reachability:
+
+```bash
+nc -vz <GPU_NODE_IP> 45876
+```
+
+Then confirm:
+
+- the system exists in the Beszel UI
+- its IP is correct
+- port is `45876`
+- `HUB_SSH_PUBLIC_KEY` matches the current hub
+
+## GPU is missing in the dashboard
+
+```bash
+nvidia-smi
+docker exec beszel-agent nvidia-smi
+docker logs --tail 200 beszel-agent
+```
+
+Also inspect the collector:
+
+```bash
+docker inspect beszel-agent \
+  --format '{{range .Config.Env}}{{println .}}{{end}}' \
+  | grep GPU_COLLECTOR
+```
+
+## GPU process shows as `host` instead of a container
+
+For Docker workloads:
+
+```bash
+docker ps
+docker exec gpu-process-exporter ls -l /var/run/docker.sock
+docker logs --tail 200 gpu-process-exporter
+```
+
+For Kubernetes workloads:
+
+```bash
+ls -l /run/containerd/containerd.sock
+docker exec gpu-process-exporter crictl \
+  --runtime-endpoint unix:///run/containerd/containerd.sock ps
+```
+
+If the socket path is different, use the actual `CRI_SOCKET_PATH` configured on that node.
+
+## CRI container is visible but Logs is empty
+
+Make sure the pod log directory is mounted:
+
+```bash
+ls -ld /var/log/pods
+```
+
+Then set:
+
+```dotenv
+CRI_LOG_PATH=/var/log/pods
+```
+
+and recreate the node stack:
+
+```bash
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  up -d
+```
+
+## Wrong SMART device
+
+Never guess the device path.
+
+```bash
+lsblk -d -o NAME,TYPE,SIZE,MODEL
+```
+
+Use the base device, for example `/dev/nvme0` or `/dev/sda`, not a partition such as `/dev/nvme0n1p1`.
+
+## YAML / Compose syntax check
+
+```bash
+docker compose \
+  --env-file .env.node \
+  -f monitored-node-compose.yml \
+  config >/dev/null && echo "Compose config OK"
+```
+
+---
+
+# Repository layout
+
+```text
+GPU-Dashboard/
+├── inventory/
+│   └── servers.yaml
+├── deploy/
+│   ├── build-images.sh
+│   ├── install-exporter.sh
+│   ├── docker/
+│   │   ├── nvitop-exporter/
+│   │   ├── gpu-process-exporter/
+│   │   └── slack-monitor/
+│   ├── standalone/
+│   │   ├── beszel-hub-compose.yml
+│   │   ├── beszel-agent-compose.yml
+│   │   ├── exporter-compose.yml
+│   │   ├── monitored-node-compose.yml
+│   │   └── slack-monitor-compose.yml
+│   └── beszel-fork/
+└── docs/
+    └── beszel-integration-research.md
+```
+
+# Components
+
+| Component | Purpose |
+| --- | --- |
+| Beszel Hub | Central web dashboard and metric storage |
+| Beszel Agent | Host, container, SMART, and GPU collection |
+| nvitop-exporter | Detailed NVIDIA GPU and per-process metrics |
+| gpu-process-exporter | PID → Docker/CRI/Kubernetes workload attribution |
+| Beszel fork | GPU process drill-down and attribution integration |
+| Slack monitor | Optional persistent cluster status message |
+
+# Why the Beszel fork exists
+
+Upstream Beszel provides the lightweight host/container monitoring foundation. This repository's fork adds the GPU-specific pieces needed for a shared GPU cluster, especially GPU process inspection and workload attribution.
+
+The earlier Prometheus + Grafana stack has been retired. Detailed implementation history and bug notes are kept in [`docs/beszel-integration-research.md`](docs/beszel-integration-research.md).
+
+# Known gaps
+
+- Hub database backup is not automated yet.
+- AlertManager-style notification routing is not included.
+- Triton and vLLM application-level metrics are not included yet.
