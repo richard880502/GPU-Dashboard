@@ -129,7 +129,8 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 		},
 		header: ({ column }) => <HeaderButton column={column} name={t`System`} Icon={ServerIcon} />,
 		cell: ({ getValue }) => {
-					const name = allSystems[getValue() as string]?.name ?? ""
+			const allSystems = useStore($allSystemsById)
+			const name = allSystems[getValue() as string]?.name ?? ""
 			return (
 				<div className="ms-1.5 flex w-full min-w-0 items-center overflow-hidden" title={name}>
 					<span className="min-w-0 flex-1 truncate font-medium">{name}</span>
