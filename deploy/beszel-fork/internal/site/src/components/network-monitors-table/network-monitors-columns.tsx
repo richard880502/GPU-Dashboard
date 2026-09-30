@@ -96,6 +96,8 @@ export function getMonitorColumns(
 			enableHiding: false,
 			enableResizing: false,
 			size: 44,
+			minSize: 44,
+			maxSize: 44,
 		},
 		{
 			id: "system",
@@ -253,6 +255,8 @@ export function getMonitorColumns(
 			enableResizing: false,
 			header: () => null,
 			size: 40,
+			minSize: 40,
+			maxSize: 40,
 			cell: ({ row, table }) => {
 				const selectedRows = table.getSelectedRowModel().rows
 				const actionRows =
