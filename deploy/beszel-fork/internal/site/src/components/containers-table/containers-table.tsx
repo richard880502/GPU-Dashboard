@@ -664,7 +664,7 @@ const ContainerTableRow = memo(function ContainerTableRow({
 			{row.getVisibleCells().map((cell) => (
 				<TableCell
 					key={cell.id}
-					className="py-0 ps-4.5"
+					className="py-0 ps-4.5 overflow-hidden"
 					style={{
 						...getColumnWidthStyle("container-col", cell.column.id),
 						height: virtualRow.size,
