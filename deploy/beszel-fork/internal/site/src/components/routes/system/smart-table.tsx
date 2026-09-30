@@ -2,6 +2,7 @@ import { t } from "@lingui/core/macro"
 import {
 	type ColumnDef,
 	type ColumnFiltersState,
+	type ColumnSizingState,
 	type Column,
 	type Row,
 	type SortingState,
@@ -34,6 +35,7 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { isReadOnlyUser, pb } from "@/lib/api"
@@ -307,6 +309,7 @@ function HeaderButton({
 export default function DisksTable({ systemId }: { systemId?: string }) {
 	const [sorting, setSorting] = useState<SortingState>([{ id: systemId ? "name" : "system", desc: false }])
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
+	const [columnSizing, setColumnSizing] = usePersistedColumnSizing(`colsize-smart-${systemId ? 1 : 0}`)
 	const [rowSelection, setRowSelection] = useState({})
 	const [smartDevices, setSmartDevices] = useState<SmartDeviceRecord[] | undefined>(undefined)
 	const [activeDiskId, setActiveDiskId] = useState<string | null>(null)
@@ -454,6 +457,8 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 		() => ({
 			id: "actions",
 			enableSorting: false,
+			enableResizing: false,
+			size: 56,
 			header: () => (
 				<span className="sr-only">
 					<Trans>Actions</Trans>
@@ -524,6 +529,13 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 		columns: tableColumns,
 		onSortingChange: setSorting,
 		onColumnFiltersChange: setColumnFilters,
+		onColumnSizingChange: setColumnSizing,
+		columnResizeMode: "onChange",
+		defaultColumn: {
+			size: 130,
+			minSize: 50,
+			maxSize: 600,
+		},
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
 		getFilteredRowModel: getFilteredRowModel(),
@@ -531,6 +543,7 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 		state: {
 			sorting,
 			columnFilters,
+			columnSizing,
 			rowSelection,
 			globalFilter,
 		},
@@ -594,6 +607,7 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 					rows={rows}
 					colLength={tableColumns.length}
 					data={smartDevices}
+					columnSizing={columnSizing}
 					openSheet={openSheet}
 				/>
 			</Card>
@@ -607,12 +621,14 @@ const SmartDevicesTable = memo(function SmartDevicesTable({
 	rows,
 	colLength,
 	data,
+	columnSizing,
 	openSheet,
 }: {
 	table: TableType<SmartDeviceRecord>
 	rows: Row<SmartDeviceRecord>[]
 	colLength: number
 	data: SmartDeviceRecord[] | undefined
+	columnSizing: ColumnSizingState
 	openSheet: (disk: SmartDeviceRecord) => void
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null)
@@ -627,6 +643,7 @@ const SmartDevicesTable = memo(function SmartDevicesTable({
 
 	const paddingTop = Math.max(0, virtualRows[0]?.start ?? 0 - virtualizer.options.scrollMargin)
 	const paddingBottom = Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0))
+	const columnSizeVars = useColumnSizeVars(table, columnSizing, "smart-col")
 
 	return (
 		<div
@@ -635,10 +652,11 @@ const SmartDevicesTable = memo(function SmartDevicesTable({
 				(!rows.length || rows.length > 2) && "min-h-50"
 			)}
 			ref={scrollRef}
+			style={columnSizeVars}
 		>
 			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
-				<table className="w-full text-sm text-nowrap">
-					<SmartTableHead table={table} />
+				<table className="min-w-full text-sm text-nowrap table-fixed" style={{ width: table.getTotalSize() }}>
+					<ResizableTableHead table={table} prefix="smart-col" />
 					<TableBody>
 						{rows.length ? (
 							virtualRows.map((virtualRow) => {
@@ -661,22 +679,6 @@ const SmartDevicesTable = memo(function SmartDevicesTable({
 	)
 })
 
-function SmartTableHead({ table }: { table: TableType<SmartDeviceRecord> }) {
-	return (
-		<TableHeader className="sticky top-0 z-50 w-full border-b-2">
-			{table.getHeaderGroups().map((headerGroup) => (
-				<TableRow key={headerGroup.id}>
-					{headerGroup.headers.map((header) => (
-						<TableHead key={header.id} className="px-2">
-							{header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-						</TableHead>
-					))}
-				</TableRow>
-			))}
-		</TableHeader>
-	)
-}
-
 const SmartDeviceTableRow = memo(function SmartDeviceTableRow({
 	row,
 	virtualRow,
@@ -697,6 +699,7 @@ const SmartDeviceTableRow = memo(function SmartDeviceTableRow({
 					key={cell.id}
 					className="md:ps-5 py-0"
 					style={{
+						...getColumnWidthStyle("smart-col", cell.column.id),
 						height: virtualRow.size,
 					}}
 				>
