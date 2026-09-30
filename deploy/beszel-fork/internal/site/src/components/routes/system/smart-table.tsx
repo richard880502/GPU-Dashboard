@@ -303,7 +303,6 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 	const [sheetOpen, setSheetOpen] = useState(false)
 	const [rowActionState, setRowActionState] = useState<{ type: "refresh" | "delete"; id: string } | null>(null)
 	const [globalFilter, setGlobalFilter] = useState("")
-	const allSystems = useStore($allSystemsById)
 
 	// duplicate the devices to test with more rows
 	// if (
