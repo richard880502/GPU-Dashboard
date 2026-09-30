@@ -5,3 +5,6 @@ __pycache__/
 # Beszel's own runtime data (SQLite DB + generated SSH keypair) -- not source
 /deploy/beszel/data/
 /deploy/beszel/data.*/
+
+# slack-monitor's persisted dashboard-message identity (channel+ts) -- not source
+/deploy/slack-monitor-data/

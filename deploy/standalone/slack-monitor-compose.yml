@@ -1,0 +1,56 @@
+# Slack live GPU dashboard -- posts one persistent message to a Slack
+# channel and keeps it updated in place (chat.update) instead of spamming a
+# new message every refresh. Pulls all cluster data from the Beszel hub's
+# own API (see deploy/docker/slack-monitor/slack_monitor/hub_client.py for
+# why -- host/GPU/process data all already lives there). Run this on
+# wingene-76 only, alongside the hub itself.
+#
+# Slack App setup (one-time, in your Slack workspace):
+#   1. https://api.slack.com/apps -> Create New App -> Blank app
+#   2. OAuth & Permissions -> Scopes -> Bot Token Scopes -> add chat:write only
+#   3. Install to Workspace, copy the Bot User OAuth Token (xoxb-...)
+#   4. Invite the app to the target channel: /invite @<app name>
+#   5. Get that channel's ID (right-click channel -> View channel details)
+#
+# Usage:
+#   cp .env.example .env
+#   # edit .env: fill in SLACK_BOT_TOKEN and SLACK_CHANNEL_ID from above,
+#   # plus USER_PASSWORD (same value beszel-hub-compose.yml uses -- this
+#   # service logs into the hub as the same account)
+#   docker compose -f slack-monitor-compose.yml up -d
+#
+# Do not commit SLACK_BOT_TOKEN. It only needs chat:write -- if you ever see
+# it requesting more than that, something's wrong; revoke and reinstall.
+services:
+  slack-monitor:
+    build:
+      context: ../docker/slack-monitor
+    container_name: gpu-slack-monitor
+    restart: unless-stopped
+    # host networking so HUB_URL's default (127.0.0.1, the hub runs on this
+    # same host) actually reaches it -- this host runs 100+ unrelated
+    # containers and has exhausted Docker's predefined subnet pool, same
+    # reasoning as beszel-hub-compose.yml's own network_mode choice.
+    network_mode: host
+    environment:
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:?set SLACK_BOT_TOKEN (see the setup steps above)}
+      # Any mix of these is fine (comma-separated for more than one of each):
+      # SLACK_CHANNEL_ID posts to a shared channel the bot's been invited to;
+      # SLACK_DM_USER_ID (needs the extra im:write scope) has the bot DM
+      # that person instead. Each target gets its own independently
+      # maintained persistent message.
+      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-}
+      - SLACK_DM_USER_ID=${SLACK_DM_USER_ID:-}
+      # Optional: reply with a fresh snapshot when the bot is @-mentioned.
+      # Needs app_mentions:read (bot scope) + Socket Mode enabled + this
+      # app-level token (xapp-..., connections:write scope). Leave unset to
+      # skip this feature entirely.
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN:-}
+      - SLACK_REFRESH_INTERVAL_SECONDS=${SLACK_REFRESH_INTERVAL_SECONDS:-30}
+      - HUB_URL=${HUB_URL:-http://127.0.0.1:13000}
+      - HUB_EMAIL=${ACCOUNT_EMAIL:-wingene@internal.local}
+      - HUB_PASSWORD=${USER_PASSWORD:?set USER_PASSWORD in .env (same account beszel-hub-compose.yml creates)}
+      - DASHBOARD_URL=${APP_URL:-http://192.168.1.76:13000}
+      - STATE_PATH=/data/state.json
+    volumes:
+      - ../slack-monitor-data:/data
