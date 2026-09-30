@@ -5,6 +5,7 @@ import { getPagePath } from "@nanostores/router"
 import {
 	type ColumnDef,
 	type ColumnFiltersState,
+	type ColumnSizingState,
 	flexRender,
 	getCoreRowModel,
 	getFilteredRowModel,
@@ -41,7 +42,8 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { TableBody, TableCell, TableRow } from "@/components/ui/table"
+import { ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
 import { SystemStatus } from "@/lib/enums"
 import { queueUserSettings } from "@/lib/api"
 import { $downSystems, $pausedSystems, $systems, $upSystems, $userSettings } from "@/lib/stores"
@@ -76,6 +78,7 @@ export default function SystemsTable() {
 			JSON.parse(sessionStorage.getItem("besz-sortMode") || "null") ?? [{ id: "system", desc: false }]
 	)
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
+	const [columnSizing, setColumnSizing] = usePersistedColumnSizing("colsize-systems")
 	const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
 		() => $userSettings.get().cols ?? JSON.parse(localStorage.getItem("besz-cols") || "{}")
 	)
@@ -183,17 +186,20 @@ export default function SystemsTable() {
 		onColumnFiltersChange: setColumnFilters,
 		getFilteredRowModel: getFilteredRowModel(),
 		onColumnVisibilityChange: handleColumnVisibilityChange,
+		onColumnSizingChange: setColumnSizing,
+		columnResizeMode: "onChange",
 		state: {
 			sorting,
 			columnFilters,
 			columnVisibility,
+			columnSizing,
 		},
 		defaultColumn: {
 			invertSorting: true,
 			sortUndefined: "last",
-			minSize: 0,
-			size: 900,
-			maxSize: 900,
+			minSize: 60,
+			size: 120,
+			maxSize: 500,
 		},
 	})
 
@@ -378,7 +384,7 @@ export default function SystemsTable() {
 			{viewMode === "table" ? (
 				// table layout
 				<div className="rounded-md">
-					<AllSystemsTable table={table} rows={rows} colLength={visibleColumns.length} />
+					<AllSystemsTable table={table} rows={rows} colLength={visibleColumns.length} columnSizing={columnSizing} />
 				</div>
 			) : (
 				// grid layout
@@ -399,7 +405,7 @@ export default function SystemsTable() {
 }
 
 const AllSystemsTable = memo(
-	({ table, rows, colLength }: { table: TableType<SystemRecord>; rows: Row<SystemRecord>[]; colLength: number }) => {
+	({ table, rows, colLength, columnSizing }: { table: TableType<SystemRecord>; rows: Row<SystemRecord>[]; colLength: number; columnSizing: ColumnSizingState }) => {
 		// The virtualizer will need a reference to the scrollable container element
 		const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -413,6 +419,7 @@ const AllSystemsTable = memo(
 
 		const paddingTop = Math.max(0, virtualRows[0]?.start ?? 0 - virtualizer.options.scrollMargin)
 		const paddingBottom = Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0))
+		const columnSizeVars = useColumnSizeVars(table, columnSizing, "system-col")
 
 		return (
 			<div
@@ -422,11 +429,12 @@ const AllSystemsTable = memo(
 					(!rows.length || rows.length > 2) && "min-h-50"
 				)}
 				ref={scrollRef}
+				style={columnSizeVars}
 			>
 				{/* add header height to table size */}
 				<div style={{ height: `${virtualizer.getTotalSize() + 50}px`, paddingTop, paddingBottom }}>
-					<table className="text-sm w-full h-full">
-						<SystemsTableHead table={table} />
+					<table className="text-sm min-w-full h-full table-fixed" style={{ width: table.getTotalSize() }}>
+						<ResizableTableHead table={table} prefix="system-col" headClassName="px-1.5" />
 						<TableBody onMouseEnter={preloadSystemDetail}>
 							{rows.length ? (
 								virtualRows.map((virtualRow) => {
@@ -456,25 +464,6 @@ const AllSystemsTable = memo(
 	}
 )
 
-function SystemsTableHead({ table }: { table: TableType<SystemRecord> }) {
-	const { t } = useLingui()
-	return (
-		<TableHeader className="sticky top-0 z-50 w-full border-b-2">
-			{table.getHeaderGroups().map((headerGroup) => (
-				<tr key={headerGroup.id}>
-					{headerGroup.headers.map((header) => {
-						return (
-							<TableHead className="px-1.5" key={header.id}>
-								{flexRender(header.column.columnDef.header, header.getContext())}
-							</TableHead>
-						)
-					})}
-				</tr>
-			))}
-		</TableHeader>
-	)
-}
-
 const SystemTableRow = memo(
 	({
 		row,
@@ -500,7 +489,7 @@ const SystemTableRow = memo(
 						<TableCell
 							key={cell.id}
 							style={{
-								width: cell.column.getSize(),
+								...getColumnWidthStyle("system-col", cell.column.id),
 								height: virtualRow.size,
 							}}
 							className="py-0 ps-4.5"
