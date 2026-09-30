@@ -3,6 +3,7 @@ import { t } from "@lingui/core/macro"
 import { Trans } from "@lingui/react/macro"
 import {
 	type ColumnFiltersState,
+	type ColumnSizingState,
 	flexRender,
 	getCoreRowModel,
 	getFilteredRowModel,
@@ -14,7 +15,7 @@ import {
 	type VisibilityState,
 } from "@tanstack/react-table"
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
-import { memo, type RefObject, useEffect, useMemo, useRef, useState } from "react"
+import { memo, type CSSProperties, type RefObject, useEffect, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { pb } from "@/lib/api"
@@ -45,6 +46,7 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 	)
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 	const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+	const [columnSizing, setColumnSizing] = useBrowserStorage<ColumnSizingState>(`colsize-c-${systemId ? 1 : 0}`, {})
 
 	// Hide ports column if no ports are present
 	useEffect(() => {
@@ -128,16 +130,20 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 		onSortingChange: setSorting,
 		onColumnFiltersChange: setColumnFilters,
 		onColumnVisibilityChange: setColumnVisibility,
+		onColumnSizingChange: setColumnSizing,
 		onRowSelectionChange: setRowSelection,
+		columnResizeMode: "onChange",
 		defaultColumn: {
 			sortUndefined: "last",
 			size: 100,
-			minSize: 0,
+			minSize: 50,
+			maxSize: 600,
 		},
 		state: {
 			sorting,
 			columnFilters,
 			columnVisibility,
+			columnSizing,
 			rowSelection,
 			globalFilter,
 		},
@@ -198,7 +204,13 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 				</div>
 			</CardHeader>
 			<div className="rounded-md">
-				<AllContainersTable table={table} rows={rows} colLength={visibleColumns.length} data={data} />
+				<AllContainersTable
+					table={table}
+					rows={rows}
+					colLength={visibleColumns.length}
+					data={data}
+					columnSizing={columnSizing}
+				/>
 			</div>
 		</Card>
 	)
@@ -209,11 +221,13 @@ const AllContainersTable = memo(function AllContainersTable({
 	rows,
 	colLength,
 	data,
+	columnSizing,
 }: {
 	table: TableType<ContainerRecord>
 	rows: Row<ContainerRecord>[]
 	colLength: number
 	data: ContainerRecord[] | undefined
+	columnSizing: ColumnSizingState
 }) {
 	// The virtualizer will need a reference to the scrollable container element
 	const scrollRef = useRef<HTMLDivElement>(null)
@@ -235,6 +249,14 @@ const AllContainersTable = memo(function AllContainersTable({
 	const paddingTop = Math.max(0, virtualRows[0]?.start ?? 0 - virtualizer.options.scrollMargin)
 	const paddingBottom = Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0))
 
+	const columnSizeVars = useMemo(() => {
+		const vars: Record<string, string> = {}
+		for (const column of table.getVisibleLeafColumns()) {
+			vars[`--container-col-${column.id}-size`] = `${column.getSize()}px`
+		}
+		return vars as CSSProperties
+	}, [table, columnSizing])
+
 	return (
 		<div
 			className={cn(
@@ -243,6 +265,7 @@ const AllContainersTable = memo(function AllContainersTable({
 				(!rows.length || rows.length > 2) && "min-h-50"
 			)}
 			ref={scrollRef}
+			style={columnSizeVars}
 		>
 			{/* add header height to table size */}
 			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
@@ -635,8 +658,27 @@ function ContainersTableHead({ table }: { table: TableType<ContainerRecord> }) {
 				<tr key={headerGroup.id}>
 					{headerGroup.headers.map((header) => {
 						return (
-							<TableHead className="px-2" key={header.id} style={{ width: header.getSize() }}>
+							<TableHead
+								className="relative px-2"
+								key={header.id}
+								style={{ width: `var(--container-col-${header.column.id}-size)` }}
+							>
 								{header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+								{header.column.getCanResize() && (
+									<div
+										role="separator"
+										aria-orientation="vertical"
+										aria-label={t`Resize column`}
+										onMouseDown={header.getResizeHandler()}
+										onTouchStart={header.getResizeHandler()}
+										onDoubleClick={() => header.column.resetSize()}
+										className={cn(
+											"absolute end-0 top-0 z-10 h-full w-2 translate-x-1/2 cursor-col-resize select-none touch-none",
+											"after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-primary/60",
+											header.column.getIsResizing() && "after:bg-primary"
+										)}
+									/>
+								)}
 							</TableHead>
 						)
 					})}
@@ -667,7 +709,7 @@ const ContainerTableRow = memo(function ContainerTableRow({
 					className="py-0 ps-4.5"
 					style={{
 						height: virtualRow.size,
-						width: cell.column.getSize(),
+						width: `var(--container-col-${cell.column.id}-size)`,
 					}}
 				>
 					{flexRender(cell.column.columnDef.cell, cell.getContext())}
