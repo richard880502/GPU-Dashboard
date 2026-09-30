@@ -15,9 +15,10 @@ import {
 	type VisibilityState,
 } from "@tanstack/react-table"
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
-import { memo, type CSSProperties, type RefObject, useEffect, useMemo, useRef, useState } from "react"
+import { memo, type RefObject, useEffect, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
-import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { TableBody, TableCell, TableRow } from "@/components/ui/table"
+import { ResizableTableHead, getColumnWidthStyle, useColumnSizeVars } from "@/components/ui/resizable-table"
 import { pb } from "@/lib/api"
 import type { ContainerRecord } from "@/types"
 import { containerChartCols } from "@/components/containers-table/containers-table-columns"
@@ -249,13 +250,7 @@ const AllContainersTable = memo(function AllContainersTable({
 	const paddingTop = Math.max(0, virtualRows[0]?.start ?? 0 - virtualizer.options.scrollMargin)
 	const paddingBottom = Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0))
 
-	const columnSizeVars = useMemo(() => {
-		const vars: Record<string, string> = {}
-		for (const column of table.getVisibleLeafColumns()) {
-			vars[`--container-col-${column.id}-size`] = `${column.getSize()}px`
-		}
-		return vars as CSSProperties
-	}, [table, columnSizing])
+	const columnSizeVars = useColumnSizeVars(table, columnSizing, "container-col")
 
 	return (
 		<div
@@ -269,8 +264,8 @@ const AllContainersTable = memo(function AllContainersTable({
 		>
 			{/* add header height to table size */}
 			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
-				<table className="text-sm w-full h-full text-nowrap">
-					<ContainersTableHead table={table} />
+				<table className="text-sm min-w-full h-full text-nowrap table-fixed" style={{ width: table.getTotalSize() }}>
+					<ResizableTableHead table={table} prefix="container-col" />
 					<TableBody>
 						{rows.length ? (
 							virtualRows.map((virtualRow) => {
@@ -651,43 +646,6 @@ export function ContainerSheet({
 	)
 }
 
-function ContainersTableHead({ table }: { table: TableType<ContainerRecord> }) {
-	return (
-		<TableHeader className="sticky top-0 z-50 w-full border-b-2">
-			{table.getHeaderGroups().map((headerGroup) => (
-				<tr key={headerGroup.id}>
-					{headerGroup.headers.map((header) => {
-						return (
-							<TableHead
-								className="relative px-2"
-								key={header.id}
-								style={{ width: `var(--container-col-${header.column.id}-size)` }}
-							>
-								{header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-								{header.column.getCanResize() && (
-									<div
-										role="separator"
-										aria-orientation="vertical"
-										aria-label={t`Resize column`}
-										onMouseDown={header.getResizeHandler()}
-										onTouchStart={header.getResizeHandler()}
-										onDoubleClick={() => header.column.resetSize()}
-										className={cn(
-											"absolute end-0 top-0 z-10 h-full w-2 translate-x-1/2 cursor-col-resize select-none touch-none",
-											"after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-primary/60",
-											header.column.getIsResizing() && "after:bg-primary"
-										)}
-									/>
-								)}
-							</TableHead>
-						)
-					})}
-				</tr>
-			))}
-		</TableHeader>
-	)
-}
-
 const ContainerTableRow = memo(function ContainerTableRow({
 	row,
 	virtualRow,
@@ -708,8 +666,8 @@ const ContainerTableRow = memo(function ContainerTableRow({
 					key={cell.id}
 					className="py-0 ps-4.5"
 					style={{
+						...getColumnWidthStyle("container-col", cell.column.id),
 						height: virtualRow.size,
-						width: `var(--container-col-${cell.column.id}-size)`,
 					}}
 				>
 					{flexRender(cell.column.columnDef.cell, cell.getContext())}
