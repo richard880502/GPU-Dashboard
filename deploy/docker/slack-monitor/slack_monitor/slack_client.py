@@ -114,20 +114,30 @@ def publish(blocks: list[dict], fallback_text: str) -> None:
                 continue
             except RuntimeError as e:
                 if "message_not_found" not in str(e):
-                    # Any other failure (rate limit, network blip, transient
-                    # Slack 5xx, auth hiccup) must NOT fall through to
-                    # posting a replacement -- a missed refresh for this
-                    # target is fine, a second permanent dashboard message
-                    # in its channel/DM is not. Retry against the same ts
-                    # next cycle.
+                    # Any other API-level failure (Slack responded, but with
+                    # ok:false) must NOT fall through to posting a
+                    # replacement -- a missed refresh for this target is
+                    # fine, a second permanent dashboard message in its
+                    # channel/DM is not. Retry against the same ts next cycle.
                     log.error("chat.update failed for %s, will retry next cycle: %s", target.state_key, e)
                     continue
                 log.warning("saved message for %s no longer exists; posting a replacement", target.state_key)
+            except httpx.HTTPError as e:
+                # A transport-level failure (rate limit / other 4xx/5xx from
+                # raise_for_status, timeout, connection error) -- same
+                # never-fall-through-to-a-replacement reasoning as the
+                # RuntimeError case above. This used to be uncaught here,
+                # which meant one target's rate limit or network blip
+                # aborted this whole publish() call, skipping every target
+                # still left in _targets() for the rest of this cycle -- not
+                # just failing to update the one that actually errored.
+                log.error("chat.update request failed for %s, will retry next cycle: %s", target.state_key, e)
+                continue
 
         try:
             channel_id = _resolve_post_channel(target)
             result = _call("chat.postMessage", channel=channel_id, text=fallback_text, blocks=blocks)
-        except RuntimeError as e:
+        except (RuntimeError, httpx.HTTPError) as e:
             log.error("failed to bootstrap %s, will retry next cycle: %s", target.state_key, e)
             continue
 

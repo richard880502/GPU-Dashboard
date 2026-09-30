@@ -17,7 +17,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from . import config
-from .models import ServerStatus
+from .models import GPUProcess, ServerStatus
 
 # Fixed UTC+8 offset, not a zoneinfo lookup -- Taiwan has no DST, so this is
 # always correct without needing a tzdata package in the (deliberately
@@ -85,16 +85,34 @@ def _gpu_lines(server: ServerStatus) -> str:
     return "\n".join(_gpu_block(gpu) for gpu in server.gpus)
 
 
+_MAX_PROCESSES_SHOWN = 3
+
+
 def _running_block(server: ServerStatus) -> str:
     all_procs = [p for gpu in server.gpus for p in gpu.processes]
     if not all_procs:
         return "_No active GPU workloads_"
-    top = max(all_procs, key=lambda p: p.util_percent)
-    who = top.username or "?"
+
+    # The same container commonly shows up more than once here (e.g. a
+    # multi-GPU job holding one GPUProcess entry per device) -- collapse
+    # those into a single line per container rather than repeating the same
+    # name, keeping whichever entry is busiest.
+    busiest_by_container: dict[str, GPUProcess] = {}
+    for p in all_procs:
+        current = busiest_by_container.get(p.container)
+        if current is None or p.util_percent > current.util_percent:
+            busiest_by_container[p.container] = p
+
+    ranked = sorted(busiest_by_container.values(), key=lambda p: p.util_percent, reverse=True)
+    lines = [f"{p.username or '?'}/{p.container}" for p in ranked[:_MAX_PROCESSES_SHOWN]]
+    remaining = len(ranked) - len(lines)
+    if remaining > 0:
+        lines.append(f"+{remaining} more")
+
     # A fenced code block reads as a distinct bordered box in Slack's client,
     # the closest thing to the mockup's own bordered "Running" panel that
     # plain mrkdwn text can do.
-    return f"Running\n```{who}\n{top.container}```"
+    return "Running\n```" + "\n".join(lines) + "```"
 
 
 def _card_for(server: ServerStatus) -> dict:
