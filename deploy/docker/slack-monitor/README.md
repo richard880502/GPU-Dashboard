@@ -159,6 +159,43 @@ everything else behaves the same.
 | `STATE_PATH` | no | `/data/state.json` | per-target bootstrap state (channel+ts) |
 | `SUBSCRIBERS_PATH` | no | `/data/subscribers.json` | dynamic DM self-subscriber list |
 
+## Useful commands
+
+Actually used getting this running the first time -- keeping them here
+instead of re-deriving them next time something needs checking.
+
+```bash
+# Rebuild + redeploy after any code/config change
+docker compose -f slack-monitor-compose.yml up -d --build
+
+# Watch it work: auth, then chat.postMessage (first ever run) or
+# chat.update (every cycle after)
+docker logs -f gpu-slack-monitor
+
+# Same, but skip the routine per-cycle noise -- useful when checking
+# whether an @-mention/DM event actually arrived
+docker logs gpu-slack-monitor --since 10m 2>&1 | \
+  grep -iv "auth-with-password\|systems/records\|system_stats/records\|refresh ok\|chat.update"
+
+# Check the bot token's *actual* granted scopes (Slack echoes them in a
+# response header) -- the fastest way to confirm a scope you just added
+# really took effect after reinstalling
+curl -s -D - -o /dev/null -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+  https://slack.com/api/auth.test | grep -i x-oauth-scopes
+
+# After any Slack App config change (new scope, new Event Subscription,
+# enabling Socket Mode) -- restart to force a fresh Socket Mode session
+# rather than trust the existing connection picked it up
+docker restart gpu-slack-monitor
+
+# Inspect (or hand-edit) the persisted per-target bootstrap state --
+# useful when switching a target (e.g. channel -> DM) and you need the
+# new target to resume updating an existing message instead of posting
+# a duplicate; see state_key's format ("channel:<id>" / "dm:<id>") in
+# slack_client.py
+docker run --rm -v "$(pwd)/../slack-monitor-data:/data:ro" alpine cat /data/state.json
+```
+
 ## Troubleshooting
 
 - **"messaging to this app is turned off" in the DM view, no compose box**:
