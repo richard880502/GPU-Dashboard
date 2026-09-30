@@ -120,6 +120,8 @@ const SMART_DEVICE_FIELDS = "id,system,name,model,state,capacity,temp,type,hours
 export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	{
 		id: "system",
+		size: 180,
+		minSize: 100,
 		accessorFn: (record) => record.system,
 		sortingFn: (a, b) => {
 			const allSystems = $allSystemsById.get()
@@ -140,6 +142,8 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "name",
+		size: 150,
+		minSize: 100,
 		sortingFn: (a, b) => a.original.name.localeCompare(b.original.name),
 		header: ({ column }) => <HeaderButton column={column} name={t`Device`} Icon={HardDrive} />,
 		cell: ({ getValue }) => {
@@ -153,6 +157,8 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "model",
+		size: 220,
+		minSize: 120,
 		sortingFn: (a, b) => a.original.model.localeCompare(b.original.model),
 		header: ({ column }) => (
 			<HeaderButton column={column} name={t({ message: "Model", comment: "Device model" })} Icon={Box} />
@@ -168,12 +174,16 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "capacity",
+		size: 110,
+		minSize: 90,
 		invertSorting: true,
 		header: ({ column }) => <HeaderButton column={column} name={t`Capacity`} Icon={BinaryIcon} />,
 		cell: ({ getValue }) => <span className="ms-1">{formatCapacity(getValue() as number)}</span>,
 	},
 	{
 		accessorKey: "state",
+		size: 110,
+		minSize: 90,
 		header: ({ column }) => <HeaderButton column={column} name={t`Status`} Icon={Activity} />,
 		cell: ({ getValue }) => {
 			const status = getValue() as string
