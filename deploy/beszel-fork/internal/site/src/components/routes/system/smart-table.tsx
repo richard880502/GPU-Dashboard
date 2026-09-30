@@ -459,6 +459,8 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 			enableSorting: false,
 			enableResizing: false,
 			size: 56,
+			minSize: 56,
+			maxSize: 56,
 			header: () => (
 				<span className="sr-only">
 					<Trans>Actions</Trans>
