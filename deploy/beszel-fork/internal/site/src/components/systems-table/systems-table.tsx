@@ -492,7 +492,7 @@ const SystemTableRow = memo(
 								...getColumnWidthStyle("system-col", cell.column.id),
 								height: virtualRow.size,
 							}}
-							className="py-0 ps-4.5"
+							className="py-0 ps-4.5 overflow-hidden"
 						>
 							{flexRender(cell.column.columnDef.cell, cell.getContext())}
 						</TableCell>
