@@ -226,17 +226,29 @@ Edit `.env` and set at least:
 USER_PASSWORD=replace-with-a-real-password
 ```
 
-The current compose file stores PocketBase/Beszel data on local disk at:
+The compose file's `volumes:` line hardcodes where PocketBase/Beszel's data
+lives on the host's disk. On the current hub (`wingene-76`) that's:
 
 ```text
 /tmp2/richard/beszel-hub-data
 ```
 
-Create it before the first start:
+This is just wherever local disk happened to be available on that specific
+host, not a required or special path — the only actual requirement is
+**local disk, not the NFS-shared home directory**: SQLite relies on file
+locking that NFS's advisory-lock semantics don't reliably guarantee, which
+was a real, hard-to-diagnose source of a multi-system silent-stall incident
+(see `deploy/standalone/beszel-hub-compose.yml`'s own comments). Deploying
+a fresh hub on a different host means picking your own local-disk path
+there and editing that `volumes:` line in the compose file to match —
+copying `/tmp2/richard/beszel-hub-data` literally onto a machine where that
+path doesn't exist (or isn't local disk) will not do the right thing.
+
+Whatever path you land on, create it before the first start:
 
 ```bash
-mkdir -p /tmp2/richard/beszel-hub-data
-chmod 777 /tmp2/richard/beszel-hub-data
+mkdir -p /path/to/local-disk/beszel-hub-data
+chmod 777 /path/to/local-disk/beszel-hub-data
 ```
 
 Then start the hub:
