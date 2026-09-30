@@ -117,11 +117,7 @@ function formatDataUnits(units: number): string {
 
 const SMART_DEVICE_FIELDS = "id,system,name,model,state,capacity,temp,type,hours,cycles,updated"
 
-export const createColumns = (
-	longestName: string,
-	longestModel: string,
-	longestDevice: string
-): ColumnDef<SmartDeviceRecord>[] => [
+export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	{
 		id: "system",
 		accessorFn: (record) => record.system,
@@ -133,14 +129,10 @@ export const createColumns = (
 		},
 		header: ({ column }) => <HeaderButton column={column} name={t`System`} Icon={ServerIcon} />,
 		cell: ({ getValue }) => {
-			const allSystems = useStore($allSystemsById)
-			const name = allSystems[getValue() as string]?.name ?? ""
+					const name = allSystems[getValue() as string]?.name ?? ""
 			return (
-				<div className="ms-1.5 relative w-fit max-w-44">
-					<span className="invisible block whitespace-nowrap" aria-hidden="true">
-						{longestName.length > name.length ? longestName : name}
-					</span>
-					<span className="absolute inset-0 truncate">{name}</span>
+				<div className="ms-1.5 flex w-full min-w-0 items-center overflow-hidden" title={name}>
+					<span className="min-w-0 flex-1 truncate font-medium">{name}</span>
 				</div>
 			)
 		},
@@ -152,11 +144,8 @@ export const createColumns = (
 		cell: ({ getValue }) => {
 			const value = getValue() as string
 			return (
-				<div className="font-medium ms-1 relative w-fit max-w-44" title={value}>
-					<span className="invisible block whitespace-nowrap" aria-hidden="true">
-						{longestDevice.length > value.length ? longestDevice : value}
-					</span>
-					<span className="absolute inset-0 truncate">{value}</span>
+				<div className="font-medium ms-1 w-full min-w-0 truncate" title={value}>
+					{value}
 				</div>
 			)
 		},
@@ -170,11 +159,8 @@ export const createColumns = (
 		cell: ({ getValue }) => {
 			const value = getValue() as string
 			return (
-				<div className="ms-1 relative w-fit max-w-44" title={value}>
-					<span className="invisible block whitespace-nowrap" aria-hidden="true">
-						{longestModel.length > value.length ? longestModel : value}
-					</span>
-					<span className="absolute inset-0 truncate">{value}</span>
+				<div className="ms-1 w-full min-w-0 truncate" title={value}>
+					{value}
 				</div>
 			)
 		},
@@ -327,31 +313,6 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 	// ) {
 	// 	setSmartDevices([...smartDevices, ...smartDevices, ...smartDevices])
 	// }
-
-	// Calculate the right width for the columns based on the longest strings among the displayed devices
-	const { longestName, longestModel, longestDevice } = useMemo(() => {
-		const result = { longestName: "", longestModel: "", longestDevice: "" }
-		if (!smartDevices || Object.keys(allSystems).length === 0) {
-			return result
-		}
-		const seenSystems = new Set<string>()
-		for (const device of smartDevices) {
-			if (!systemId && !seenSystems.has(device.system)) {
-				seenSystems.add(device.system)
-				const name = allSystems[device.system]?.name ?? ""
-				if (name.length > result.longestName.length) {
-					result.longestName = name
-				}
-			}
-			if ((device.model ?? "").length > result.longestModel.length) {
-				result.longestModel = device.model ?? ""
-			}
-			if ((device.name ?? "").length > result.longestDevice.length) {
-				result.longestDevice = device.name ?? ""
-			}
-		}
-		return result
-	}, [smartDevices, systemId, allSystems])
 
 	const openSheet = (disk: SmartDeviceRecord) => {
 		setActiveDiskId(disk.id)
@@ -521,10 +482,10 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 
 	// Filter columns based on whether systemId is provided
 	const tableColumns = useMemo(() => {
-		const columns = createColumns(longestName, longestModel, longestDevice)
+		const columns = createColumns()
 		const baseColumns = systemId ? columns.filter((col) => col.id !== "system") : columns
 		return isReadOnlyUser() ? baseColumns : [...baseColumns, actionColumn]
-	}, [systemId, actionColumn, longestName, longestModel, longestDevice])
+	}, [systemId, actionColumn])
 
 	const table = useReactTable({
 		data: smartDevices || ([] as SmartDeviceRecord[]),
@@ -699,7 +660,7 @@ const SmartDeviceTableRow = memo(function SmartDeviceTableRow({
 			{row.getVisibleCells().map((cell) => (
 				<TableCell
 					key={cell.id}
-					className="md:ps-5 py-0"
+					className="md:ps-5 py-0 overflow-hidden"
 					style={{
 						...getColumnWidthStyle("smart-col", cell.column.id),
 						height: virtualRow.size,
