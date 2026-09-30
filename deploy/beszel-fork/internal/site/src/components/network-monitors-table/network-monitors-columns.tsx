@@ -94,6 +94,7 @@ export function getMonitorColumns(
 			),
 			enableSorting: false,
 			enableHiding: false,
+			enableResizing: false,
 			size: 44,
 		},
 		{
@@ -249,6 +250,7 @@ export function getMonitorColumns(
 			id: "actions",
 			enableSorting: false,
 			enableHiding: false,
+			enableResizing: false,
 			header: () => null,
 			size: 40,
 			cell: ({ row, table }) => {
