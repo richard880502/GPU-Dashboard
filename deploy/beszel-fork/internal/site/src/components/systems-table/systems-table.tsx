@@ -43,7 +43,15 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { TableBody, TableCell, TableRow } from "@/components/ui/table"
-import { ResizableTableColGroup, ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
+import {
+	getColumnWidthStyle,
+	getResizableTableProps,
+	isCustomSized,
+	ResizableTableColGroup,
+	ResizableTableHead,
+	usePersistedColumnSizing,
+	useColumnSizeVars,
+} from "@/components/ui/resizable-table"
 import { SystemStatus } from "@/lib/enums"
 import { queueUserSettings } from "@/lib/api"
 import { $downSystems, $pausedSystems, $systems, $upSystems, $userSettings } from "@/lib/stores"
@@ -78,7 +86,7 @@ export default function SystemsTable() {
 			JSON.parse(sessionStorage.getItem("besz-sortMode") || "null") ?? [{ id: "system", desc: false }]
 	)
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-	const [columnSizing, setColumnSizing] = usePersistedColumnSizing("colsize-v2-systems")
+	const [columnSizing, setColumnSizing] = usePersistedColumnSizing("colsize-v3-systems")
 	const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
 		() => $userSettings.get().cols ?? JSON.parse(localStorage.getItem("besz-cols") || "{}")
 	)
@@ -197,9 +205,9 @@ export default function SystemsTable() {
 		defaultColumn: {
 			invertSorting: true,
 			sortUndefined: "last",
-			minSize: 80,
-			size: 160,
-			maxSize: 800,
+			minSize: 0,
+			size: 900,
+			maxSize: 900,
 		},
 	})
 
@@ -405,7 +413,17 @@ export default function SystemsTable() {
 }
 
 const AllSystemsTable = memo(
-	({ table, rows, colLength, columnSizing }: { table: TableType<SystemRecord>; rows: Row<SystemRecord>[]; colLength: number; columnSizing: ColumnSizingState }) => {
+	({
+		table,
+		rows,
+		colLength,
+		columnSizing,
+	}: {
+		table: TableType<SystemRecord>
+		rows: Row<SystemRecord>[]
+		colLength: number
+		columnSizing: ColumnSizingState
+	}) => {
 		// The virtualizer will need a reference to the scrollable container element
 		const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -419,7 +437,10 @@ const AllSystemsTable = memo(
 
 		const paddingTop = Math.max(0, virtualRows[0]?.start ?? 0 - virtualizer.options.scrollMargin)
 		const paddingBottom = Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0))
+
+		const customSized = isCustomSized(columnSizing)
 		const columnSizeVars = useColumnSizeVars(table, columnSizing, "system-col")
+		const tableProps = getResizableTableProps("system-col", customSized)
 
 		return (
 			<div
@@ -433,16 +454,15 @@ const AllSystemsTable = memo(
 			>
 				{/* add header height to table size */}
 				<div style={{ height: `${virtualizer.getTotalSize() + 50}px`, paddingTop, paddingBottom }}>
-					<table
-						className="text-sm h-full table-fixed"
-						style={{
-							width: table.getTotalSize(),
-							minWidth: table.getTotalSize(),
-							maxWidth: table.getTotalSize(),
-						}}
-					>
-						<ResizableTableColGroup table={table} prefix="system-col" />
-						<ResizableTableHead table={table} prefix="system-col" headClassName="px-1.5" />
+					<table className={cn("text-sm h-full", tableProps.className)} style={tableProps.style}>
+						<ResizableTableColGroup table={table} prefix="system-col" customSized={customSized} />
+						<ResizableTableHead
+							table={table}
+							prefix="system-col"
+							customSized={customSized}
+							columnSizing={columnSizing}
+							headClassName="px-1.5"
+						/>
 						<TableBody onMouseEnter={preloadSystemDetail}>
 							{rows.length ? (
 								virtualRows.map((virtualRow) => {
@@ -454,6 +474,7 @@ const AllSystemsTable = memo(
 											virtualRow={virtualRow}
 											length={rows.length}
 											colLength={colLength}
+											customSized={customSized}
 										/>
 									)
 								})
@@ -477,11 +498,13 @@ const SystemTableRow = memo(
 		row,
 		virtualRow,
 		colLength,
+		customSized,
 	}: {
 		row: Row<SystemRecord>
 		virtualRow: VirtualItem
 		length: number
 		colLength: number
+		customSized: boolean
 	}) => {
 		const system = row.original
 		const { t } = useLingui()
@@ -497,17 +520,17 @@ const SystemTableRow = memo(
 						<TableCell
 							key={cell.id}
 							style={{
-								...getColumnWidthStyle("system-col", cell.column.id),
+								...getColumnWidthStyle("system-col", cell.column.id, customSized, { width: cell.column.getSize() }),
 								height: virtualRow.size,
 							}}
-							className="py-0 ps-4.5 overflow-hidden"
+							className={cn("py-0 ps-4.5", customSized && "overflow-hidden")}
 						>
 							{flexRender(cell.column.columnDef.cell, cell.getContext())}
 						</TableCell>
 					))}
 				</TableRow>
 			)
-		}, [system, system.status, colLength, t])
+		}, [system, system.status, colLength, customSized, t])
 	}
 )
 

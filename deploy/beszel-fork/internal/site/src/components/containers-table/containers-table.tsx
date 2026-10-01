@@ -18,7 +18,15 @@ import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
 import { memo, type RefObject, useEffect, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { TableBody, TableCell, TableRow } from "@/components/ui/table"
-import { ResizableTableColGroup, ResizableTableHead, getColumnWidthStyle, useColumnSizeVars } from "@/components/ui/resizable-table"
+import {
+	getColumnWidthStyle,
+	getResizableTableProps,
+	isCustomSized,
+	ResizableTableColGroup,
+	ResizableTableHead,
+	usePersistedColumnSizing,
+	useColumnSizeVars,
+} from "@/components/ui/resizable-table"
 import { pb } from "@/lib/api"
 import type { ContainerRecord } from "@/types"
 import { containerChartCols } from "@/components/containers-table/containers-table-columns"
@@ -47,7 +55,7 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 	)
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 	const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
-	const [columnSizing, setColumnSizing] = useBrowserStorage<ColumnSizingState>(`colsize-v2-c-${systemId ? 1 : 0}`, {})
+	const [columnSizing, setColumnSizing] = usePersistedColumnSizing(`colsize-v3-c-${systemId ? 1 : 0}`)
 
 	// Hide ports column if no ports are present
 	useEffect(() => {
@@ -132,13 +140,12 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 		onColumnFiltersChange: setColumnFilters,
 		onColumnVisibilityChange: setColumnVisibility,
 		onColumnSizingChange: setColumnSizing,
-		onRowSelectionChange: setRowSelection,
 		columnResizeMode: "onChange",
+		onRowSelectionChange: setRowSelection,
 		defaultColumn: {
 			sortUndefined: "last",
-			size: 130,
-			minSize: 70,
-			maxSize: 800,
+			size: 100,
+			minSize: 0,
 		},
 		state: {
 			sorting,
@@ -250,7 +257,9 @@ const AllContainersTable = memo(function AllContainersTable({
 	const paddingTop = Math.max(0, virtualRows[0]?.start ?? 0 - virtualizer.options.scrollMargin)
 	const paddingBottom = Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0))
 
+	const customSized = isCustomSized(columnSizing)
 	const columnSizeVars = useColumnSizeVars(table, columnSizing, "container-col")
+	const tableProps = getResizableTableProps("container-col", customSized)
 
 	return (
 		<div
@@ -264,21 +273,28 @@ const AllContainersTable = memo(function AllContainersTable({
 		>
 			{/* add header height to table size */}
 			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
-				<table
-					className="text-sm h-full text-nowrap table-fixed"
-					style={{
-						width: table.getTotalSize(),
-						minWidth: table.getTotalSize(),
-						maxWidth: table.getTotalSize(),
-					}}
-				>
-					<ResizableTableColGroup table={table} prefix="container-col" />
-					<ResizableTableHead table={table} prefix="container-col" />
+				<table className={cn("text-sm h-full text-nowrap", tableProps.className)} style={tableProps.style}>
+					<ResizableTableColGroup table={table} prefix="container-col" customSized={customSized} />
+					<ResizableTableHead
+						table={table}
+						prefix="container-col"
+						customSized={customSized}
+						columnSizing={columnSizing}
+						originalHeadStyle={(width) => ({ width })}
+					/>
 					<TableBody>
 						{rows.length ? (
 							virtualRows.map((virtualRow) => {
 								const row = rows[virtualRow.index]
-								return <ContainerTableRow key={row.id} row={row} virtualRow={virtualRow} openSheet={openSheet} />
+								return (
+									<ContainerTableRow
+										key={row.id}
+										row={row}
+										virtualRow={virtualRow}
+										openSheet={openSheet}
+										customSized={customSized}
+									/>
+								)
 							})
 						) : (
 							<TableRow>
@@ -658,10 +674,12 @@ const ContainerTableRow = memo(function ContainerTableRow({
 	row,
 	virtualRow,
 	openSheet,
+	customSized,
 }: {
 	row: Row<ContainerRecord>
 	virtualRow: VirtualItem
 	openSheet: (container: ContainerRecord) => void
+	customSized: boolean
 }) {
 	return (
 		<TableRow
@@ -672,10 +690,10 @@ const ContainerTableRow = memo(function ContainerTableRow({
 			{row.getVisibleCells().map((cell) => (
 				<TableCell
 					key={cell.id}
-					className="py-0 ps-4.5 overflow-hidden"
+					className={cn("py-0 ps-4.5", customSized && "overflow-hidden")}
 					style={{
-						...getColumnWidthStyle("container-col", cell.column.id),
 						height: virtualRow.size,
+						...getColumnWidthStyle("container-col", cell.column.id, customSized, { width: cell.column.getSize() }),
 					}}
 				>
 					{flexRender(cell.column.columnDef.cell, cell.getContext())}

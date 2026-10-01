@@ -26,7 +26,7 @@ import { memo, useMemo, useRef, useState } from "react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 import { isReadOnlyUser, pb } from "@/lib/api"
 import { BatteryState, ConnectionType, connectionTypeLabels, MeterState, SystemStatus } from "@/lib/enums"
-import { $systems, $userSettings } from "@/lib/stores"
+import { $longestSystemName, $systems, $userSettings } from "@/lib/stores"
 import {
 	cn,
 	copyToClipboard,
@@ -95,8 +95,9 @@ function getMeterStateByThresholds(value: number, warn = 65, crit = 90): MeterSt
 export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<SystemRecord>[] {
 	return [
 		{
-			size: 220,
-			minSize: 120,
+			// size: 200,
+			size: 100,
+			minSize: 0,
 			accessorKey: "name",
 			id: "system",
 			name: () => t`System`,
@@ -138,12 +139,13 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 			Icon: ServerIcon,
 			cell: (info) => {
 				const { name, id } = info.row.original
+				const longestName = useStore($longestSystemName)
 				const allSystems = useStore($systems)
 				const linkUrl = getPagePath($router, "system", { id })
 
 				return (
 					<>
-						<span className="flex w-full min-w-0 gap-2 items-center overflow-hidden font-medium text-sm text-nowrap md:ps-1">
+						<span className="flex gap-2 items-center font-medium text-sm text-nowrap md:ps-1">
 							<span
 								className={cn(
 									"shrink-0 size-2 rounded-full",
@@ -156,7 +158,7 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 							<Link
 								href={linkUrl}
 								tabIndex={-1}
-								className="relative min-w-0 flex-1 truncate z-10"
+								className="relative w-fit max-w-48 z-10"
 								onMouseEnter={(e) => {
 									// set title on hover if text is truncated to show full name
 									const a = e.currentTarget
@@ -167,7 +169,15 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 									}
 								}}
 							>
-								{name}
+								{/* size to whichever is longer: the shared longest-name-seen-so-far,
+									or this row's own name -- $longestSystemName is filled in
+									asynchronously as systems' realtime updates arrive, so early
+									renders can't rely on it alone without truncating this row's
+									own (possibly not-yet-"longest") name */}
+								<span className="invisible block" aria-hidden="true">
+									{longestName.length > name.length ? longestName : name}
+								</span>
+								<span className="absolute inset-0 truncate">{name}</span>
 							</Link>
 						</span>
 						<Link href={linkUrl} className="inset-0 absolute size-full" aria-label={name}></Link>
@@ -179,7 +189,6 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		{
 			accessorFn: ({ info }) => info.cpu || undefined,
 			id: "cpu",
-			size: 180,
 			name: () => t`CPU`,
 			cell: TableCellWithMeter,
 			Icon: CpuIcon,
@@ -189,7 +198,6 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 			// accessorKey: "info.mp",
 			accessorFn: ({ info }) => info.mp || undefined,
 			id: "memory",
-			size: 180,
 			name: () => t`Memory`,
 			cell: TableCellWithMeter,
 			Icon: MemoryStickIcon,
@@ -198,7 +206,6 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		{
 			accessorFn: ({ info }) => info.dp || undefined,
 			id: "disk",
-			size: 180,
 			name: () => t`Disk`,
 			cell: (info: CellContext<SystemRecord, unknown>) =>
 				info.row.original.info.efs ? DiskCellWithMultiple(info) : TableCellWithMeter(info),
@@ -208,7 +215,6 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		{
 			accessorFn: ({ info }) => info.g,
 			id: "gpu",
-			size: 180,
 			name: () => "GPU",
 			cell: (info) => {
 				const val = info.getValue() as number | undefined
@@ -222,9 +228,9 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		},
 		{
 			id: "loadAverage",
-			size: 165,
 			accessorFn: ({ info }) => info.la?.reduce((acc, curr) => acc + curr, 0),
 			name: () => t({ message: "Load Avg", comment: "Short label for load average" }),
+			size: 0,
 			Icon: HourglassIcon,
 			header: sortableHeader,
 			cell(info: CellContext<SystemRecord, unknown>) {
@@ -261,8 +267,8 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		{
 			accessorFn: ({ info, status }) => (status !== SystemStatus.Up ? undefined : info.bb),
 			id: "net",
-			size: 140,
 			name: () => t`Net`,
+			size: 0,
 			Icon: EthernetIcon,
 			header: sortableHeader,
 			sortUndefined: "last",
@@ -283,8 +289,8 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		{
 			accessorFn: ({ info }) => info.dt,
 			id: "temp",
-			size: 130,
 			name: () => t({ message: "Temp", comment: "Temperature label in systems table" }),
+			size: 50,
 			hideSort: true,
 			Icon: ThermometerIcon,
 			header: sortableHeader,
@@ -305,8 +311,8 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		{
 			accessorFn: ({ info }) => info.bat?.[0],
 			id: "battery",
-			size: 135,
 			name: () => t({ message: "Bat", comment: "Battery label in systems table header" }),
+			size: 70,
 			Icon: BatteryMediumIcon,
 			header: sortableHeader,
 			hideSort: true,
@@ -351,8 +357,8 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		{
 			accessorFn: ({ info }) => info.sv?.[0],
 			id: "services",
-			size: 155,
 			name: () => t`Services`,
+			size: 50,
 			Icon: TerminalSquareIcon,
 			header: sortableHeader,
 			hideSort: true,
@@ -390,8 +396,8 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		{
 			accessorFn: ({ info }) => info.u || undefined,
 			id: "uptime",
-			size: 140,
 			name: () => t`Uptime`,
+			size: 50,
 			Icon: ClockArrowUp,
 			header: sortableHeader,
 			hideSort: true,
@@ -406,8 +412,8 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		{
 			accessorFn: ({ info }) => info.v,
 			id: "agent",
-			size: 135,
 			name: () => t`Agent`,
+			size: 50,
 			Icon: WifiIcon,
 			hideSort: true,
 			header: sortableHeader,
@@ -447,12 +453,9 @@ export function SystemsTableColumns(viewMode: "table" | "grid"): ColumnDef<Syste
 		},
 		{
 			id: "actions",
-			enableResizing: false,
 			// @ts-expect-error
 			name: () => t({ message: "Actions", comment: "Table column" }),
 			size: 50,
-			minSize: 50,
-			maxSize: 50,
 			cell: ({ row }) => (
 				<div className="relative z-10 flex justify-end items-center gap-1 -ms-3">
 					<AlertButton system={row.original} />

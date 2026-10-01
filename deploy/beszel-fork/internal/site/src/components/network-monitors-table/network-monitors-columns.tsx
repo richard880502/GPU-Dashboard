@@ -30,7 +30,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Trans } from "@lingui/react/macro"
-import { $allSystemsById } from "@/lib/stores"
+import { $allSystemsById, $longestSystemName } from "@/lib/stores"
 import { useStore } from "@nanostores/react"
 import { SystemStatus } from "@/lib/enums"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -60,15 +60,18 @@ const SYSTEM_STATUS_COLORS = {
 const isMuted = (record: NetworkMonitorRecord, systemRecord: SystemRecord | undefined) =>
 	!record.enabled || systemRecord?.status !== SystemStatus.Up
 
-export function getMonitorColumns({
-	onEdit,
+export function getMonitorColumns(
+	longestTarget = "",
+	{
+		onEdit,
 		onDelete,
 		onSetEnabled,
-}: {
-	onEdit?: (monitor: NetworkMonitorRecord) => void
-	onDelete?: (monitors: NetworkMonitorRecord[]) => void | Promise<void>
-	onSetEnabled?: (monitors: NetworkMonitorRecord[], enabled: boolean) => void | Promise<void>
-} = {}): ColumnDef<NetworkMonitorRecord>[] {
+	}: {
+		onEdit?: (monitor: NetworkMonitorRecord) => void
+		onDelete?: (monitors: NetworkMonitorRecord[]) => void | Promise<void>
+		onSetEnabled?: (monitors: NetworkMonitorRecord[], enabled: boolean) => void | Promise<void>
+	} = {}
+): ColumnDef<NetworkMonitorRecord>[] {
 	return [
 		{
 			id: "select",
@@ -91,14 +94,10 @@ export function getMonitorColumns({
 			),
 			enableSorting: false,
 			enableHiding: false,
-			enableResizing: false,
 			size: 44,
-			minSize: 44,
-			maxSize: 44,
 		},
 		{
 			id: "system",
-			size: 220,
 			accessorFn: (record) => record.system,
 			sortingFn: (a, b) => {
 				const allSystems = $allSystemsById.get()
@@ -113,14 +112,20 @@ export function getMonitorColumns({
 			header: ({ column }) => <HeaderButton column={column} name={t`System`} Icon={ServerIcon} />,
 			cell: ({ getValue }) => {
 				const system = useStore($allSystemsById)[getValue() as string] as SystemRecord | undefined
+				const longestSystemName = useStore($longestSystemName)
 				const name = system?.name
 				const status = system?.status as SystemStatus // undefined val is fine but makes lsp mad
 
 				return useMemo(
 					() => (
-						<div className="ms-1.5 flex w-full min-w-0 gap-2 items-center overflow-hidden tabular-nums">
+						<div className="ms-1.5 max-w-44 flex gap-2 items-center tabular-nums">
 							<span className={cn("shrink-0 size-2 rounded-full", SYSTEM_STATUS_COLORS[status])} />
-							<span className="min-w-0 flex-1 truncate" title={name}>{name}</span>
+							<div className="relative w-fit min-w-0 max-w-full">
+								<span className="invisible block whitespace-nowrap" aria-hidden="true">
+									{longestSystemName.length > (name?.length ?? 0) ? longestSystemName : name}
+								</span>
+								<span className="absolute inset-0 truncate">{name}</span>
+							</div>
 						</div>
 					),
 					[status, name]
@@ -129,7 +134,6 @@ export function getMonitorColumns({
 		},
 		{
 			id: "target",
-			size: 260,
 			sortingFn: (a, b) => a.original.target.localeCompare(b.original.target),
 			accessorFn: (record) => getMonitorTarget(record),
 			header: ({ column }) => <HeaderButton column={column} name={t`Target`} Icon={GlobeIcon} />,
@@ -144,16 +148,20 @@ export function getMonitorColumns({
 					color = "bg-yellow-500"
 				}
 				return (
-					<div className="ms-1.5 flex w-full min-w-0 gap-2 items-center overflow-hidden tabular-nums">
+					<div className="ms-1.5 max-w-64 flex gap-2 items-center tabular-nums">
 						<span className={cn("shrink-0 size-2 rounded-full", color)} />
-						<span className="min-w-0 flex-1 truncate" title={getValue() as string}>{getValue() as string}</span>
+						<div className="relative w-fit min-w-0 max-w-full">
+							<span className="invisible block overflow-hidden whitespace-nowrap" aria-hidden="true">
+								{longestTarget}
+							</span>
+							<span className="absolute inset-0 truncate">{getValue() as string}</span>
+						</div>
 					</div>
 				)
 			},
 		},
 		{
 			id: "protocol",
-			size: 135,
 			accessorFn: (record) => record.protocol,
 			header: ({ column }) => <HeaderButton column={column} name={t`Protocol`} Icon={ArrowLeftRightIcon} />,
 			cell: ({ getValue }) => {
@@ -163,7 +171,6 @@ export function getMonitorColumns({
 		},
 		{
 			id: "interval",
-			size: 135,
 			accessorFn: (record) => record.interval,
 			invertSorting: true,
 			header: ({ column }) => <HeaderButton column={column} name={t`Interval`} Icon={RefreshCwIcon} />,
@@ -171,7 +178,6 @@ export function getMonitorColumns({
 		},
 		{
 			id: "res",
-			size: 150,
 			accessorFn: (record) => record.res,
 			invertSorting: true,
 			header: ({ column }) => <HeaderButton column={column} name={t`Response`} Icon={TimerIcon} />,
@@ -179,7 +185,6 @@ export function getMonitorColumns({
 		},
 		{
 			id: "res1h",
-			size: 145,
 			accessorFn: (record) => record.resAvg1h,
 			invertSorting: true,
 			header: ({ column }) => <HeaderButton column={column} name={t`Avg 1h`} Icon={TimerIcon} />,
@@ -187,7 +192,6 @@ export function getMonitorColumns({
 		},
 		{
 			id: "max1h",
-			size: 145,
 			accessorFn: (record) => record.resMax1h,
 			invertSorting: true,
 			header: ({ column }) => <HeaderButton column={column} name={t`Max 1h`} Icon={TimerIcon} />,
@@ -195,7 +199,6 @@ export function getMonitorColumns({
 		},
 		{
 			id: "min1h",
-			size: 145,
 			accessorFn: (record) => record.resMin1h,
 			invertSorting: true,
 			header: ({ column }) => <HeaderButton column={column} name={t`Min 1h`} Icon={TimerIcon} />,
@@ -203,7 +206,6 @@ export function getMonitorColumns({
 		},
 		{
 			id: "loss",
-			size: 145,
 			accessorFn: (record) => record.loss1h,
 			invertSorting: true,
 			header: ({ column }) => <HeaderButton column={column} name={t`Loss 1h`} Icon={WifiOffIcon} />,
@@ -232,7 +234,6 @@ export function getMonitorColumns({
 		},
 		{
 			id: "updated",
-			size: 150,
 			invertSorting: true,
 			accessorFn: (record) => record.updated,
 			header: ({ column }) => <HeaderButton column={column} name={t`Updated`} Icon={ClockIcon} />,
@@ -248,11 +249,8 @@ export function getMonitorColumns({
 			id: "actions",
 			enableSorting: false,
 			enableHiding: false,
-			enableResizing: false,
 			header: () => null,
 			size: 40,
-			minSize: 40,
-			maxSize: 40,
 			cell: ({ row, table }) => {
 				const selectedRows = table.getSelectedRowModel().rows
 				const actionRows =

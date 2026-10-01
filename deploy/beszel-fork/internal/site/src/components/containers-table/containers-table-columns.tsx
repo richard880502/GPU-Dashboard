@@ -17,7 +17,7 @@ import {
 import { EthernetIcon, GpuIcon, HourglassIcon, SquareArrowRightEnterIcon } from "../ui/icons"
 import { Badge } from "../ui/badge"
 import { t } from "@lingui/core/macro"
-import { $allSystemsById } from "@/lib/stores"
+import { $allSystemsById, $longestSystemName } from "@/lib/stores"
 import { useStore } from "@nanostores/react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 
@@ -46,20 +46,22 @@ function getStatusValue(status: string): number {
 export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	{
 		id: "name",
-		size: 220,
-		minSize: 120,
 		sortingFn: (a, b) => a.original.name.localeCompare(b.original.name),
 		accessorFn: (record) => record.name,
 		header: ({ column }) => <HeaderButton column={column} name={t`Name`} Icon={ContainerIcon} />,
 		cell: ({ getValue }) => {
-			return <span className="ms-1.5 block w-full min-w-0 truncate">{getValue() as string}</span>
+			return <span className="ms-1.5 xl:w-48 block truncate">{getValue() as string}</span>
 		},
 	},
 	{
 		id: "system",
-		size: 220,
-		minSize: 120,
 		accessorFn: (record) => record.system,
+		// defaultColumn.size (100px, set on the table below) is too narrow for
+		// "wingene-XX"-style hostnames -- the inner max-w-56 cap a few lines
+		// down never even gets a chance to matter if the cell itself is
+		// already capped smaller than that.
+		size: 150,
+		minSize: 150,
 		sortingFn: (a, b) => {
 			const allSystems = $allSystemsById.get()
 			const systemNameA = allSystems[a.original.system]?.name ?? ""
@@ -73,9 +75,10 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 		header: ({ column }) => <HeaderButton column={column} name={t`System`} Icon={ServerIcon} />,
 		cell: ({ getValue }) => {
 			const allSystems = useStore($allSystemsById)
+			const longestName = useStore($longestSystemName)
 			const name = allSystems[getValue() as string]?.name ?? ""
 			return (
-				<div className="ms-1 flex w-full min-w-0 items-center gap-1.5 overflow-hidden">
+				<div className="ms-1 flex items-center gap-1.5">
 					<span
 						className={cn(
 							"inline-block size-1.5 rounded-full shrink-0",
@@ -85,9 +88,12 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 							)
 						)}
 					/>
-					<span className="min-w-0 flex-1 truncate font-medium" title={name}>
-						{name}
-					</span>
+					<div className="relative w-fit max-w-56">
+						<span className="invisible block whitespace-nowrap" aria-hidden="true">
+							{longestName.length > name.length ? longestName : name}
+						</span>
+						<span className="absolute inset-0 truncate font-medium">{name}</span>
+					</div>
 				</div>
 			)
 		},
@@ -103,7 +109,6 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	// },
 	{
 		id: "cpu",
-		size: 110,
 		accessorFn: (record) => record.cpu,
 		invertSorting: true,
 		header: ({ column }) => <HeaderButton column={column} name={t`CPU`} Icon={CpuIcon} />,
@@ -114,7 +119,6 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	},
 	{
 		id: "memory",
-		size: 140,
 		accessorFn: (record) => record.memory,
 		invertSorting: true,
 		header: ({ column }) => <HeaderButton column={column} name={t`Memory`} Icon={MemoryStickIcon} />,
@@ -131,7 +135,6 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	// a glance which containers are using which GPU, and how much.
 	{
 		id: "gpuMem",
-		size: 155,
 		accessorFn: (record) => record.gpuMemMiB ?? 0,
 		invertSorting: true,
 		header: ({ column }) => <HeaderButton column={column} name={t`GPU Mem`} Icon={GpuIcon} />,
@@ -148,7 +151,6 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	},
 	{
 		id: "gpuUtil",
-		size: 135,
 		accessorFn: (record) => record.gpuUtilPercent ?? 0,
 		invertSorting: true,
 		header: ({ column }) => <HeaderButton column={column} name={t`GPU Util`} Icon={GpuIcon} />,
@@ -159,7 +161,6 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	},
 	{
 		id: "gpuPid",
-		size: 110,
 		accessorFn: (record) => record.gpuPid || undefined,
 		sortingFn: (a, b) => Number(a.original.gpuPid?.split(",")[0] ?? 0) - Number(b.original.gpuPid?.split(",")[0] ?? 0),
 		header: ({ column }) => <HeaderButton column={column} name={t`PID`} Icon={HashIcon} />,
@@ -170,7 +171,6 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	},
 	{
 		id: "net",
-		size: 140,
 		accessorFn: (record) => record.net,
 		invertSorting: true,
 		header: ({ column }) => <HeaderButton column={column} name={t`Net`} Icon={EthernetIcon} />,
@@ -185,7 +185,6 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	},
 	{
 		id: "health",
-		size: 145,
 		invertSorting: true,
 		accessorFn: (record) => record.health,
 		header: ({ column }) => <HeaderButton column={column} name={t`Health`} Icon={ShieldCheckIcon} />,
@@ -210,7 +209,6 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	},
 	{
 		id: "ports",
-		size: 180,
 		accessorFn: (record) => record.ports || undefined,
 		header: ({ column }) => (
 			<HeaderButton
@@ -240,7 +238,6 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	},
 	{
 		id: "image",
-		size: 220,
 		sortingFn: (a, b) => a.original.image.localeCompare(b.original.image),
 		accessorFn: (record) => record.image,
 		header: ({ column }) => (
@@ -271,7 +268,6 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	},
 	{
 		id: "status",
-		size: 135,
 		accessorFn: (record) => record.status,
 		invertSorting: true,
 		sortingFn: (a, b) => getStatusValue(a.original.status) - getStatusValue(b.original.status),
@@ -282,7 +278,6 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 	},
 	{
 		id: "updated",
-		size: 145,
 		invertSorting: true,
 		accessorFn: (record) => record.updated,
 		header: ({ column }) => <HeaderButton column={column} name={t`Updated`} Icon={ClockIcon} />,
