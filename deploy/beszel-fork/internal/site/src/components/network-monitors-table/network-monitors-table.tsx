@@ -32,13 +32,22 @@ import { getMonitorColumns } from "@/components/network-monitors-table/network-m
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { TableBody, TableCell, TableRow } from "@/components/ui/table"
-import { ResizableTableColGroup, ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
+import {
+	getColumnWidthStyle,
+	getResizableTableProps,
+	isCustomSized,
+	ResizableTableColGroup,
+	ResizableTableHead,
+	usePersistedColumnSizing,
+	useColumnSizeVars,
+} from "@/components/ui/resizable-table"
 import { useToast } from "@/components/ui/use-toast"
 import { isReadOnlyUser } from "@/lib/api"
 import { pb } from "@/lib/api"
 import { $allSystemsById, $direction, $userSettings } from "@/lib/stores"
 import {
 	cn,
+	isVisuallyLonger,
 	matchesFilterGroups,
 	parseFilterGroups,
 	parseSemVer,
@@ -73,7 +82,7 @@ export default function NetworkMonitorsTableNew({
 	)
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 	const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
-	const [columnSizing, setColumnSizing] = usePersistedColumnSizing(`colsize-v2-nm-${systemId ? 1 : 0}`)
+	const [columnSizing, setColumnSizing] = usePersistedColumnSizing("colsize-v3-monitors")
 	const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
 	const [globalFilter, setGlobalFilter] = useState("")
 	const [deleteOpen, setDeleteOpen] = useState(false)
@@ -82,6 +91,16 @@ export default function NetworkMonitorsTableNew({
 
 	const { toast } = useToast()
 	const canManageMonitors = !isReadOnlyUser()
+
+	const longestTarget = useMemo(() => {
+		let longestTarget = ""
+		for (const p of monitors) {
+			if (isVisuallyLonger(getMonitorTarget(p), longestTarget)) {
+				longestTarget = getMonitorTarget(p)
+			}
+		}
+		return longestTarget
+	}, [monitors])
 
 	const runMonitorBatch = useCallback(
 		async (ids: string[], enqueue: (batch: ReturnType<typeof pb.createBatch>, id: string) => void) => {
@@ -182,7 +201,7 @@ export default function NetworkMonitorsTableNew({
 	)
 
 	const columns = useMemo(() => {
-		let columns = getMonitorColumns({
+		let columns = getMonitorColumns(longestTarget, {
 			onEdit: setEditingMonitor,
 			onDelete: handleDeleteRequest,
 			onSetEnabled: handleSetEnabled,
@@ -190,7 +209,7 @@ export default function NetworkMonitorsTableNew({
 		columns = systemId ? columns.filter((col) => col.id !== "system") : columns
 		columns = canManageMonitors ? columns : columns.filter((col) => col.id !== "actions")
 		return columns
-	}, [canManageMonitors, handleDeleteRequest, handleSetEnabled, systemId])
+	}, [canManageMonitors, handleDeleteRequest, handleSetEnabled, systemId, longestTarget])
 
 	const table = useReactTable({
 		data: monitors,
@@ -203,13 +222,12 @@ export default function NetworkMonitorsTableNew({
 		onColumnFiltersChange: setColumnFilters,
 		onColumnVisibilityChange: setColumnVisibility,
 		onColumnSizingChange: setColumnSizing,
-		onRowSelectionChange: setRowSelection,
 		columnResizeMode: "onChange",
+		onRowSelectionChange: setRowSelection,
 		defaultColumn: {
 			sortUndefined: "last",
-			size: 150,
-			minSize: 80,
-			maxSize: 800,
+			size: 900,
+			minSize: 0,
 		},
 		state: {
 			sorting,
@@ -320,8 +338,8 @@ export default function NetworkMonitorsTableNew({
 					table={table}
 					rows={rows}
 					colLength={visibleColumns.length}
-					rowSelection={rowSelection}
 					columnSizing={columnSizing}
+					rowSelection={rowSelection}
 					isLoading={isLoading}
 				/>
 			</div>
@@ -333,15 +351,15 @@ const NetworkMonitorsTable = memo(function NetworkMonitorTable({
 	table,
 	rows,
 	colLength,
-	rowSelection,
 	columnSizing,
+	rowSelection,
 	isLoading,
 }: {
 	table: TableType<NetworkMonitorRecord>
 	rows: Row<NetworkMonitorRecord>[]
 	colLength: number
-	rowSelection: RowSelectionState
 	columnSizing: ColumnSizingState
+	rowSelection: RowSelectionState
 	isLoading: boolean
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null)
@@ -365,7 +383,10 @@ const NetworkMonitorsTable = memo(function NetworkMonitorTable({
 
 	const paddingTop = Math.max(0, virtualRows[0]?.start ?? 0 - virtualizer.options.scrollMargin)
 	const paddingBottom = Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0))
+
+	const customSized = isCustomSized(columnSizing)
 	const columnSizeVars = useColumnSizeVars(table, columnSizing, "monitor-col")
+	const tableProps = getResizableTableProps("monitor-col", customSized)
 
 	return (
 		<div
@@ -377,16 +398,14 @@ const NetworkMonitorsTable = memo(function NetworkMonitorTable({
 			style={columnSizeVars}
 		>
 			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
-				<table
-					className="text-sm h-full text-nowrap table-fixed"
-					style={{
-						width: table.getTotalSize(),
-						minWidth: table.getTotalSize(),
-						maxWidth: table.getTotalSize(),
-					}}
-				>
-					<ResizableTableColGroup table={table} prefix="monitor-col" />
-					<ResizableTableHead table={table} prefix="monitor-col" />
+				<table className={cn("text-sm h-full text-nowrap", tableProps.className)} style={tableProps.style}>
+					<ResizableTableColGroup table={table} prefix="monitor-col" customSized={customSized} />
+					<ResizableTableHead
+						table={table}
+						prefix="monitor-col"
+						customSized={customSized}
+						columnSizing={columnSizing}
+					/>
 					<TableBody>
 						{rows.length ? (
 							virtualRows.map((virtualRow) => {
@@ -399,6 +418,7 @@ const NetworkMonitorsTable = memo(function NetworkMonitorTable({
 										isSelected={row.getIsSelected()}
 										rowSelection={rowSelection}
 										openSheet={openSheet}
+										customSized={customSized}
 									/>
 								)
 							})
@@ -433,6 +453,7 @@ const NetworkMonitorTableRow = memo(function NetworkMonitorTableRow({
 	isSelected,
 	rowSelection: _rowSelection,
 	openSheet,
+	customSized,
 }: {
 	row: Row<NetworkMonitorRecord>
 	virtualRow: VirtualItem
@@ -440,6 +461,7 @@ const NetworkMonitorTableRow = memo(function NetworkMonitorTableRow({
 	// Menus depend on the entire selection, including changes to other rows.
 	rowSelection: RowSelectionState
 	openSheet: (monitor: NetworkMonitorRecord) => void
+	customSized: boolean
 }) {
 	return (
 		<TableRow
@@ -450,9 +472,11 @@ const NetworkMonitorTableRow = memo(function NetworkMonitorTableRow({
 			{row.getVisibleCells().map((cell) => (
 				<TableCell
 					key={cell.id}
-					className="py-0 overflow-hidden"
+					className={cn("py-0", customSized && "overflow-hidden")}
 					style={{
-						...getColumnWidthStyle("monitor-col", cell.column.id),
+						...getColumnWidthStyle("monitor-col", cell.column.id, customSized, {
+							width: `${cell.column.getSize()}px`,
+						}),
 						height: virtualRow.size,
 					}}
 				>

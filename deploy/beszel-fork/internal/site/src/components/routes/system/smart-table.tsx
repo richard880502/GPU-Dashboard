@@ -35,7 +35,15 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ResizableTableColGroup, ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
+import {
+	getColumnWidthStyle,
+	getResizableTableProps,
+	isCustomSized,
+	ResizableTableColGroup,
+	ResizableTableHead,
+	usePersistedColumnSizing,
+	useColumnSizeVars,
+} from "@/components/ui/resizable-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { isReadOnlyUser, pb } from "@/lib/api"
@@ -117,11 +125,13 @@ function formatDataUnits(units: number): string {
 
 const SMART_DEVICE_FIELDS = "id,system,name,model,state,capacity,temp,type,hours,cycles,updated"
 
-export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
+export const createColumns = (
+	longestName: string,
+	longestModel: string,
+	longestDevice: string
+): ColumnDef<SmartDeviceRecord>[] => [
 	{
 		id: "system",
-		size: 220,
-		minSize: 100,
 		accessorFn: (record) => record.system,
 		sortingFn: (a, b) => {
 			const allSystems = $allSystemsById.get()
@@ -134,31 +144,33 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 			const allSystems = useStore($allSystemsById)
 			const name = allSystems[getValue() as string]?.name ?? ""
 			return (
-				<div className="ms-1.5 flex w-full min-w-0 items-center overflow-hidden" title={name}>
-					<span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+				<div className="ms-1.5 relative w-fit max-w-44">
+					<span className="invisible block whitespace-nowrap" aria-hidden="true">
+						{longestName.length > name.length ? longestName : name}
+					</span>
+					<span className="absolute inset-0 truncate">{name}</span>
 				</div>
 			)
 		},
 	},
 	{
 		accessorKey: "name",
-		size: 180,
-		minSize: 100,
 		sortingFn: (a, b) => a.original.name.localeCompare(b.original.name),
 		header: ({ column }) => <HeaderButton column={column} name={t`Device`} Icon={HardDrive} />,
 		cell: ({ getValue }) => {
 			const value = getValue() as string
 			return (
-				<div className="font-medium ms-1 w-full min-w-0 truncate" title={value}>
-					{value}
+				<div className="font-medium ms-1 relative w-fit max-w-44" title={value}>
+					<span className="invisible block whitespace-nowrap" aria-hidden="true">
+						{longestDevice.length > value.length ? longestDevice : value}
+					</span>
+					<span className="absolute inset-0 truncate">{value}</span>
 				</div>
 			)
 		},
 	},
 	{
 		accessorKey: "model",
-		size: 280,
-		minSize: 120,
 		sortingFn: (a, b) => a.original.model.localeCompare(b.original.model),
 		header: ({ column }) => (
 			<HeaderButton column={column} name={t({ message: "Model", comment: "Device model" })} Icon={Box} />
@@ -166,24 +178,23 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 		cell: ({ getValue }) => {
 			const value = getValue() as string
 			return (
-				<div className="ms-1 w-full min-w-0 truncate" title={value}>
-					{value}
+				<div className="ms-1 relative w-fit max-w-44" title={value}>
+					<span className="invisible block whitespace-nowrap" aria-hidden="true">
+						{longestModel.length > value.length ? longestModel : value}
+					</span>
+					<span className="absolute inset-0 truncate">{value}</span>
 				</div>
 			)
 		},
 	},
 	{
 		accessorKey: "capacity",
-		size: 135,
-		minSize: 90,
 		invertSorting: true,
 		header: ({ column }) => <HeaderButton column={column} name={t`Capacity`} Icon={BinaryIcon} />,
 		cell: ({ getValue }) => <span className="ms-1">{formatCapacity(getValue() as number)}</span>,
 	},
 	{
 		accessorKey: "state",
-		size: 135,
-		minSize: 90,
 		header: ({ column }) => <HeaderButton column={column} name={t`Status`} Icon={Activity} />,
 		cell: ({ getValue }) => {
 			const status = getValue() as string
@@ -196,7 +207,6 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "type",
-		size: 120,
 		sortingFn: (a, b) => a.original.type.localeCompare(b.original.type),
 		header: ({ column }) => <HeaderButton column={column} name={t`Type`} Icon={ArrowLeftRightIcon} />,
 		cell: ({ getValue }) => (
@@ -207,7 +217,6 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "hours",
-		size: 155,
 		invertSorting: true,
 		header: ({ column }) => (
 			<HeaderButton column={column} name={t({ message: "Power On", comment: "Power On Time" })} Icon={Clock} />
@@ -228,7 +237,6 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "cycles",
-		size: 135,
 		invertSorting: true,
 		header: ({ column }) => (
 			<HeaderButton column={column} name={t({ message: "Cycles", comment: "Power Cycles" })} Icon={RotateCwIcon} />
@@ -243,7 +251,6 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "temp",
-		size: 125,
 		invertSorting: true,
 		header: ({ column }) => <HeaderButton column={column} name={t`Temp`} Icon={ThermometerIcon} />,
 		cell: ({ getValue }) => {
@@ -269,7 +276,6 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	// },
 	{
 		id: "updated",
-		size: 150,
 		invertSorting: true,
 		accessorFn: (record) => record.updated,
 		header: ({ column }) => <HeaderButton column={column} name={t`Updated`} Icon={Clock} />,
@@ -311,13 +317,14 @@ function HeaderButton({
 export default function DisksTable({ systemId }: { systemId?: string }) {
 	const [sorting, setSorting] = useState<SortingState>([{ id: systemId ? "name" : "system", desc: false }])
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-	const [columnSizing, setColumnSizing] = usePersistedColumnSizing(`colsize-v2-smart-${systemId ? 1 : 0}`)
+	const [columnSizing, setColumnSizing] = usePersistedColumnSizing("colsize-v3-smart")
 	const [rowSelection, setRowSelection] = useState({})
 	const [smartDevices, setSmartDevices] = useState<SmartDeviceRecord[] | undefined>(undefined)
 	const [activeDiskId, setActiveDiskId] = useState<string | null>(null)
 	const [sheetOpen, setSheetOpen] = useState(false)
 	const [rowActionState, setRowActionState] = useState<{ type: "refresh" | "delete"; id: string } | null>(null)
 	const [globalFilter, setGlobalFilter] = useState("")
+	const allSystems = useStore($allSystemsById)
 
 	// duplicate the devices to test with more rows
 	// if (
@@ -328,6 +335,31 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 	// ) {
 	// 	setSmartDevices([...smartDevices, ...smartDevices, ...smartDevices])
 	// }
+
+	// Calculate the right width for the columns based on the longest strings among the displayed devices
+	const { longestName, longestModel, longestDevice } = useMemo(() => {
+		const result = { longestName: "", longestModel: "", longestDevice: "" }
+		if (!smartDevices || Object.keys(allSystems).length === 0) {
+			return result
+		}
+		const seenSystems = new Set<string>()
+		for (const device of smartDevices) {
+			if (!systemId && !seenSystems.has(device.system)) {
+				seenSystems.add(device.system)
+				const name = allSystems[device.system]?.name ?? ""
+				if (name.length > result.longestName.length) {
+					result.longestName = name
+				}
+			}
+			if ((device.model ?? "").length > result.longestModel.length) {
+				result.longestModel = device.model ?? ""
+			}
+			if ((device.name ?? "").length > result.longestDevice.length) {
+				result.longestDevice = device.name ?? ""
+			}
+		}
+		return result
+	}, [smartDevices, systemId, allSystems])
 
 	const openSheet = (disk: SmartDeviceRecord) => {
 		setActiveDiskId(disk.id)
@@ -433,10 +465,6 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 		() => ({
 			id: "actions",
 			enableSorting: false,
-			enableResizing: false,
-			size: 56,
-			minSize: 56,
-			maxSize: 56,
 			header: () => (
 				<span className="sr-only">
 					<Trans>Actions</Trans>
@@ -497,10 +525,10 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 
 	// Filter columns based on whether systemId is provided
 	const tableColumns = useMemo(() => {
-		const columns = createColumns()
+		const columns = createColumns(longestName, longestModel, longestDevice)
 		const baseColumns = systemId ? columns.filter((col) => col.id !== "system") : columns
 		return isReadOnlyUser() ? baseColumns : [...baseColumns, actionColumn]
-	}, [systemId, actionColumn])
+	}, [systemId, actionColumn, longestName, longestModel, longestDevice])
 
 	const table = useReactTable({
 		data: smartDevices || ([] as SmartDeviceRecord[]),
@@ -509,11 +537,6 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 		onColumnFiltersChange: setColumnFilters,
 		onColumnSizingChange: setColumnSizing,
 		columnResizeMode: "onChange",
-		defaultColumn: {
-			size: 145,
-			minSize: 80,
-			maxSize: 800,
-		},
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
 		getFilteredRowModel: getFilteredRowModel(),
@@ -621,7 +644,10 @@ const SmartDevicesTable = memo(function SmartDevicesTable({
 
 	const paddingTop = Math.max(0, virtualRows[0]?.start ?? 0 - virtualizer.options.scrollMargin)
 	const paddingBottom = Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0))
+
+	const customSized = isCustomSized(columnSizing)
 	const columnSizeVars = useColumnSizeVars(table, columnSizing, "smart-col")
+	const tableProps = getResizableTableProps("smart-col", customSized)
 
 	return (
 		<div
@@ -633,21 +659,27 @@ const SmartDevicesTable = memo(function SmartDevicesTable({
 			style={columnSizeVars}
 		>
 			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
-				<table
-					className="text-sm text-nowrap table-fixed"
-					style={{
-						width: table.getTotalSize(),
-						minWidth: table.getTotalSize(),
-						maxWidth: table.getTotalSize(),
-					}}
-				>
-					<ResizableTableColGroup table={table} prefix="smart-col" />
-					<ResizableTableHead table={table} prefix="smart-col" />
+				<table className={cn("text-sm text-nowrap", tableProps.className)} style={tableProps.style}>
+					<ResizableTableColGroup table={table} prefix="smart-col" customSized={customSized} />
+					<ResizableTableHead
+						table={table}
+						prefix="smart-col"
+						customSized={customSized}
+						columnSizing={columnSizing}
+					/>
 					<TableBody>
 						{rows.length ? (
 							virtualRows.map((virtualRow) => {
 								const row = rows[virtualRow.index]
-								return <SmartDeviceTableRow key={row.id} row={row} virtualRow={virtualRow} openSheet={openSheet} />
+								return (
+									<SmartDeviceTableRow
+										key={row.id}
+										row={row}
+										virtualRow={virtualRow}
+										openSheet={openSheet}
+										customSized={customSized}
+									/>
+								)
 							})
 						) : (
 							<TableCell colSpan={colLength} className="h-37 text-center pointer-events-none">
@@ -669,10 +701,12 @@ const SmartDeviceTableRow = memo(function SmartDeviceTableRow({
 	row,
 	virtualRow,
 	openSheet,
+	customSized,
 }: {
 	row: Row<SmartDeviceRecord>
 	virtualRow: VirtualItem
 	openSheet: (disk: SmartDeviceRecord) => void
+	customSized: boolean
 }) {
 	return (
 		<TableRow
@@ -683,9 +717,9 @@ const SmartDeviceTableRow = memo(function SmartDeviceTableRow({
 			{row.getVisibleCells().map((cell) => (
 				<TableCell
 					key={cell.id}
-					className="md:ps-5 py-0 overflow-hidden"
+					className={cn("md:ps-5 py-0", customSized && "overflow-hidden")}
 					style={{
-						...getColumnWidthStyle("smart-col", cell.column.id),
+						...getColumnWidthStyle("smart-col", cell.column.id, customSized),
 						height: virtualRow.size,
 					}}
 				>
