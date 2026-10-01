@@ -30,6 +30,22 @@ export function getColumnWidthStyle(prefix: string, columnId: string): CSSProper
 	return { width: `var(--${prefix}-${columnId}-size)` }
 }
 
+export function ResizableTableColGroup<TData>({
+	table,
+	prefix,
+}: {
+	table: TableType<TData>
+	prefix: string
+}) {
+	return (
+		<colgroup>
+			{table.getVisibleLeafColumns().map((column) => (
+				<col key={column.id} style={getColumnWidthStyle(prefix, column.id)} />
+			))}
+		</colgroup>
+	)
+}
+
 export function ResizableTableHead<TData>({
 	table,
 	prefix,
