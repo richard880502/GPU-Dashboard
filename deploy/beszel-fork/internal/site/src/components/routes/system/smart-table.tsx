@@ -35,7 +35,7 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
+import { ResizableTableColGroup, ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { isReadOnlyUser, pb } from "@/lib/api"
@@ -628,7 +628,15 @@ const SmartDevicesTable = memo(function SmartDevicesTable({
 			style={columnSizeVars}
 		>
 			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
-				<table className="min-w-full text-sm text-nowrap table-fixed" style={{ width: table.getTotalSize() }}>
+				<table
+					className="text-sm text-nowrap table-fixed"
+					style={{
+						width: table.getTotalSize(),
+						minWidth: table.getTotalSize(),
+						maxWidth: table.getTotalSize(),
+					}}
+				>
+					<ResizableTableColGroup table={table} prefix="smart-col" />
 					<ResizableTableHead table={table} prefix="smart-col" />
 					<TableBody>
 						{rows.length ? (
