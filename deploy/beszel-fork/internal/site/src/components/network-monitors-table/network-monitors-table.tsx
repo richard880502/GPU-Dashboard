@@ -73,7 +73,7 @@ export default function NetworkMonitorsTableNew({
 	)
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 	const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
-	const [columnSizing, setColumnSizing] = usePersistedColumnSizing(`colsize-nm-${systemId ? 1 : 0}`)
+	const [columnSizing, setColumnSizing] = usePersistedColumnSizing(`colsize-v2-nm-${systemId ? 1 : 0}`)
 	const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
 	const [globalFilter, setGlobalFilter] = useState("")
 	const [deleteOpen, setDeleteOpen] = useState(false)
@@ -207,9 +207,9 @@ export default function NetworkMonitorsTableNew({
 		columnResizeMode: "onChange",
 		defaultColumn: {
 			sortUndefined: "last",
-			size: 140,
-			minSize: 50,
-			maxSize: 600,
+			size: 150,
+			minSize: 80,
+			maxSize: 800,
 		},
 		state: {
 			sorting,
