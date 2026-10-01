@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { TableBody, TableCell, TableRow } from "@/components/ui/table"
-import { ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
+import { ResizableTableColGroup, ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
 import { SystemStatus } from "@/lib/enums"
 import { queueUserSettings } from "@/lib/api"
 import { $downSystems, $pausedSystems, $systems, $upSystems, $userSettings } from "@/lib/stores"
@@ -433,7 +433,15 @@ const AllSystemsTable = memo(
 			>
 				{/* add header height to table size */}
 				<div style={{ height: `${virtualizer.getTotalSize() + 50}px`, paddingTop, paddingBottom }}>
-					<table className="text-sm min-w-full h-full table-fixed" style={{ width: table.getTotalSize() }}>
+					<table
+						className="text-sm h-full table-fixed"
+						style={{
+							width: table.getTotalSize(),
+							minWidth: table.getTotalSize(),
+							maxWidth: table.getTotalSize(),
+						}}
+					>
+						<ResizableTableColGroup table={table} prefix="system-col" />
 						<ResizableTableHead table={table} prefix="system-col" headClassName="px-1.5" />
 						<TableBody onMouseEnter={preloadSystemDetail}>
 							{rows.length ? (
