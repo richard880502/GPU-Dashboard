@@ -32,7 +32,7 @@ import { getMonitorColumns } from "@/components/network-monitors-table/network-m
 import { Card, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { TableBody, TableCell, TableRow } from "@/components/ui/table"
-import { ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
+import { ResizableTableColGroup, ResizableTableHead, getColumnWidthStyle, useColumnSizeVars, usePersistedColumnSizing } from "@/components/ui/resizable-table"
 import { useToast } from "@/components/ui/use-toast"
 import { isReadOnlyUser } from "@/lib/api"
 import { pb } from "@/lib/api"
@@ -377,7 +377,15 @@ const NetworkMonitorsTable = memo(function NetworkMonitorTable({
 			style={columnSizeVars}
 		>
 			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
-				<table className="text-sm min-w-full h-full text-nowrap table-fixed" style={{ width: table.getTotalSize() }}>
+				<table
+					className="text-sm h-full text-nowrap table-fixed"
+					style={{
+						width: table.getTotalSize(),
+						minWidth: table.getTotalSize(),
+						maxWidth: table.getTotalSize(),
+					}}
+				>
+					<ResizableTableColGroup table={table} prefix="monitor-col" />
 					<ResizableTableHead table={table} prefix="monitor-col" />
 					<TableBody>
 						{rows.length ? (
