@@ -78,7 +78,7 @@ export default function SystemsTable() {
 			JSON.parse(sessionStorage.getItem("besz-sortMode") || "null") ?? [{ id: "system", desc: false }]
 	)
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-	const [columnSizing, setColumnSizing] = usePersistedColumnSizing("colsize-systems")
+	const [columnSizing, setColumnSizing] = usePersistedColumnSizing("colsize-v2-systems")
 	const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
 		() => $userSettings.get().cols ?? JSON.parse(localStorage.getItem("besz-cols") || "{}")
 	)
@@ -197,9 +197,9 @@ export default function SystemsTable() {
 		defaultColumn: {
 			invertSorting: true,
 			sortUndefined: "last",
-			minSize: 60,
-			size: 120,
-			maxSize: 500,
+			minSize: 80,
+			size: 160,
+			maxSize: 800,
 		},
 	})
 
