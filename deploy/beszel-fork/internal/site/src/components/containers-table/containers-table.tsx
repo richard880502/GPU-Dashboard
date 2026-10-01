@@ -47,7 +47,7 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 	)
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
 	const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
-	const [columnSizing, setColumnSizing] = useBrowserStorage<ColumnSizingState>(`colsize-c-${systemId ? 1 : 0}`, {})
+	const [columnSizing, setColumnSizing] = useBrowserStorage<ColumnSizingState>(`colsize-v2-c-${systemId ? 1 : 0}`, {})
 
 	// Hide ports column if no ports are present
 	useEffect(() => {
@@ -136,9 +136,9 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 		columnResizeMode: "onChange",
 		defaultColumn: {
 			sortUndefined: "last",
-			size: 100,
-			minSize: 50,
-			maxSize: 600,
+			size: 130,
+			minSize: 70,
+			maxSize: 800,
 		},
 		state: {
 			sorting,
