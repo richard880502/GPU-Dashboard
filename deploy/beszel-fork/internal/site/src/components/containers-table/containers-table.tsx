@@ -18,7 +18,7 @@ import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
 import { memo, type RefObject, useEffect, useMemo, useRef, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { TableBody, TableCell, TableRow } from "@/components/ui/table"
-import { ResizableTableHead, getColumnWidthStyle, useColumnSizeVars } from "@/components/ui/resizable-table"
+import { ResizableTableColGroup, ResizableTableHead, getColumnWidthStyle, useColumnSizeVars } from "@/components/ui/resizable-table"
 import { pb } from "@/lib/api"
 import type { ContainerRecord } from "@/types"
 import { containerChartCols } from "@/components/containers-table/containers-table-columns"
@@ -264,7 +264,15 @@ const AllContainersTable = memo(function AllContainersTable({
 		>
 			{/* add header height to table size */}
 			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
-				<table className="text-sm min-w-full h-full text-nowrap table-fixed" style={{ width: table.getTotalSize() }}>
+				<table
+					className="text-sm h-full text-nowrap table-fixed"
+					style={{
+						width: table.getTotalSize(),
+						minWidth: table.getTotalSize(),
+						maxWidth: table.getTotalSize(),
+					}}
+				>
+					<ResizableTableColGroup table={table} prefix="container-col" />
 					<ResizableTableHead table={table} prefix="container-col" />
 					<TableBody>
 						{rows.length ? (
