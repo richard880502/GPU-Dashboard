@@ -5,7 +5,7 @@ import {
 	type ColumnSizingState,
 	type Table as TableType,
 } from "@tanstack/react-table"
-import { type CSSProperties, type MouseEvent, type TouchEvent, useMemo } from "react"
+import { type CSSProperties, type MouseEvent, type TouchEvent, useCallback, useMemo } from "react"
 import { flushSync } from "react-dom"
 import { cn, useBrowserStorage } from "@/lib/utils"
 import { TableHead, TableHeader } from "@/components/ui/table"
@@ -23,6 +23,10 @@ import { TableHead, TableHeader } from "@/components/ui/table"
 // selection checkbox / row-actions columns have a fixed width
 const NON_RESIZABLE_COLUMNS = new Set(["select", "actions"])
 const MIN_COLUMN_WIDTH = 60
+// The system-name column shows "dot + hostname"; narrower than this it just
+// reads "wingene-..." and the table is no longer usable.
+const MIN_WIDTH_BY_COLUMN: Record<string, number> = { system: 150 }
+const minWidthFor = (columnId: string) => MIN_WIDTH_BY_COLUMN[columnId] ?? MIN_COLUMN_WIDTH
 const MAX_COLUMN_WIDTH = 1200
 // Columns that appear after widths were pinned (e.g. un-hidden from the
 // column menu) have no measured width yet; their nominal `size` can be a
@@ -30,7 +34,27 @@ const MAX_COLUMN_WIDTH = 1200
 const UNMEASURED_FALLBACK_MAX = 180
 
 export function usePersistedColumnSizing(key: string) {
-	return useBrowserStorage<ColumnSizingState>(key, {})
+	const [columnSizing, setStored] = useBrowserStorage<ColumnSizingState>(key, {}) as [
+		ColumnSizingState,
+		(next: ColumnSizingState | ((prev: ColumnSizingState) => ColumnSizingState)) => void,
+	]
+	// keep stored widths at or above each column's minimum, so what is saved
+	// is what is shown and a drag never starts from a hidden, smaller value
+	const setColumnSizing = useCallback(
+		(updater: ColumnSizingState | ((prev: ColumnSizingState) => ColumnSizingState)) => {
+			setStored((prev) => {
+				const next = typeof updater === "function" ? updater(prev) : updater
+				return Object.fromEntries(Object.entries(next).map(([id, w]) => [id, Math.max(w, minWidthFor(id))]))
+			})
+		},
+		[setStored]
+	)
+	// widths saved before a minimum existed
+	const clamped = useMemo(
+		() => Object.fromEntries(Object.entries(columnSizing).map(([id, w]) => [id, Math.max(w, minWidthFor(id))])),
+		[columnSizing]
+	)
+	return [clamped, setColumnSizing] as const
 }
 
 export function isCustomSized(columnSizing: ColumnSizingState) {
@@ -42,7 +66,7 @@ function effectiveSize<TData>(column: Column<TData, unknown>, columnSizing: Colu
 	if (stored === undefined) {
 		return Math.min(Math.max(column.getSize(), MIN_COLUMN_WIDTH), UNMEASURED_FALLBACK_MAX)
 	}
-	return Math.min(Math.max(stored, MIN_COLUMN_WIDTH), MAX_COLUMN_WIDTH)
+	return Math.min(Math.max(stored, minWidthFor(column.id)), MAX_COLUMN_WIDTH)
 }
 
 export function useColumnSizeVars<TData>(
