@@ -120,7 +120,7 @@ const SMART_DEVICE_FIELDS = "id,system,name,model,state,capacity,temp,type,hours
 export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	{
 		id: "system",
-		size: 180,
+		size: 220,
 		minSize: 100,
 		accessorFn: (record) => record.system,
 		sortingFn: (a, b) => {
@@ -142,7 +142,7 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "name",
-		size: 150,
+		size: 180,
 		minSize: 100,
 		sortingFn: (a, b) => a.original.name.localeCompare(b.original.name),
 		header: ({ column }) => <HeaderButton column={column} name={t`Device`} Icon={HardDrive} />,
@@ -157,7 +157,7 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "model",
-		size: 220,
+		size: 280,
 		minSize: 120,
 		sortingFn: (a, b) => a.original.model.localeCompare(b.original.model),
 		header: ({ column }) => (
@@ -174,7 +174,7 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "capacity",
-		size: 110,
+		size: 135,
 		minSize: 90,
 		invertSorting: true,
 		header: ({ column }) => <HeaderButton column={column} name={t`Capacity`} Icon={BinaryIcon} />,
@@ -182,7 +182,7 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "state",
-		size: 110,
+		size: 135,
 		minSize: 90,
 		header: ({ column }) => <HeaderButton column={column} name={t`Status`} Icon={Activity} />,
 		cell: ({ getValue }) => {
@@ -196,6 +196,7 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "type",
+		size: 120,
 		sortingFn: (a, b) => a.original.type.localeCompare(b.original.type),
 		header: ({ column }) => <HeaderButton column={column} name={t`Type`} Icon={ArrowLeftRightIcon} />,
 		cell: ({ getValue }) => (
@@ -206,6 +207,7 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "hours",
+		size: 155,
 		invertSorting: true,
 		header: ({ column }) => (
 			<HeaderButton column={column} name={t({ message: "Power On", comment: "Power On Time" })} Icon={Clock} />
@@ -226,6 +228,7 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "cycles",
+		size: 135,
 		invertSorting: true,
 		header: ({ column }) => (
 			<HeaderButton column={column} name={t({ message: "Cycles", comment: "Power Cycles" })} Icon={RotateCwIcon} />
@@ -240,6 +243,7 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	},
 	{
 		accessorKey: "temp",
+		size: 125,
 		invertSorting: true,
 		header: ({ column }) => <HeaderButton column={column} name={t`Temp`} Icon={ThermometerIcon} />,
 		cell: ({ getValue }) => {
@@ -265,6 +269,7 @@ export const createColumns = (): ColumnDef<SmartDeviceRecord>[] => [
 	// },
 	{
 		id: "updated",
+		size: 150,
 		invertSorting: true,
 		accessorFn: (record) => record.updated,
 		header: ({ column }) => <HeaderButton column={column} name={t`Updated`} Icon={Clock} />,
@@ -306,7 +311,7 @@ function HeaderButton({
 export default function DisksTable({ systemId }: { systemId?: string }) {
 	const [sorting, setSorting] = useState<SortingState>([{ id: systemId ? "name" : "system", desc: false }])
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-	const [columnSizing, setColumnSizing] = usePersistedColumnSizing(`colsize-smart-${systemId ? 1 : 0}`)
+	const [columnSizing, setColumnSizing] = usePersistedColumnSizing(`colsize-v2-smart-${systemId ? 1 : 0}`)
 	const [rowSelection, setRowSelection] = useState({})
 	const [smartDevices, setSmartDevices] = useState<SmartDeviceRecord[] | undefined>(undefined)
 	const [activeDiskId, setActiveDiskId] = useState<string | null>(null)
@@ -505,9 +510,9 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 		onColumnSizingChange: setColumnSizing,
 		columnResizeMode: "onChange",
 		defaultColumn: {
-			size: 130,
-			minSize: 50,
-			maxSize: 600,
+			size: 145,
+			minSize: 80,
+			maxSize: 800,
 		},
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
