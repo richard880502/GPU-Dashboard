@@ -1,22 +1,23 @@
 // gpu-monitoring fork addition (not upstream): a per-GPU status table for
 // the home page, mirroring this project's own Grafana "GPU Status by
 // Server" panel (one row per server+GPU, with Util/VRAM/Temp/Power).
-import { useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { useStore } from "@nanostores/react"
 import { getPagePath } from "@nanostores/router"
 import { t } from "@lingui/core/macro"
 import { pb } from "@/lib/api"
 import { $allSystemsById } from "@/lib/stores"
-import { MeterState } from "@/lib/enums"
+import { MeterState, SystemStatus } from "@/lib/enums"
 import type { ContainerRecord, GPUProcess } from "@/types"
-import { cn, decimalString, getServerDotColor } from "@/lib/utils"
+import { cn, decimalString, getServerDotColor, useBrowserStorage } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
-import { HashIcon } from "lucide-react"
+import { ChevronRightIcon, ChevronsDownUpIcon, ChevronsUpDownIcon, HashIcon } from "lucide-react"
 import { GpuIcon } from "./ui/icons"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet"
 import { $router, Link } from "./router"
 import { ContainerSheet } from "./containers-table/containers-table"
 import { toast } from "./ui/use-toast"
+import { Button } from "./ui/button"
 
 // Renders a process's container attribution readably instead of the raw
 // "host:<process>" / "k8s:<namespace>/<pod>/<container>" wire format. Real
@@ -81,9 +82,51 @@ interface GpuRow {
 	name: string
 	util: number
 	vramPct: number
+	memUsed: number
+	memTotal: number
 	temp?: number
 	power?: number
 	procs: GPUProcess[]
+}
+
+// One collapsible group per server: its GPUs plus the roll-up shown on the
+// (always visible) header row, so a busy server is findable without expanding.
+interface GpuGroup {
+	systemId: string
+	name: string
+	gpus: GpuRow[]
+	occupied: number
+	avgUtil: number
+	vramPct: number
+	maxTemp?: number
+	totalPower?: number
+}
+
+function groupRows(rows: GpuRow[], systems: Record<string, { name: string }>): GpuGroup[] {
+	const bySystem = new Map<string, GpuRow[]>()
+	for (const row of rows) {
+		bySystem.set(row.systemId, [...(bySystem.get(row.systemId) ?? []), row])
+	}
+	const groups: GpuGroup[] = []
+	for (const [systemId, gpus] of bySystem) {
+		gpus.sort((a, b) => Number(a.index) - Number(b.index))
+		const temps = gpus.map((g) => g.temp).filter((v): v is number => v !== undefined)
+		const powers = gpus.map((g) => g.power).filter((v): v is number => v !== undefined)
+		const memTotal = gpus.reduce((sum, g) => sum + g.memTotal, 0)
+		groups.push({
+			systemId,
+			name: systems[systemId]?.name ?? systemId,
+			gpus,
+			occupied: gpus.filter((g) => g.procs.length > 0).length,
+			avgUtil: gpus.reduce((sum, g) => sum + g.util, 0) / gpus.length,
+			vramPct: memTotal ? (gpus.reduce((sum, g) => sum + g.memUsed, 0) / memTotal) * 100 : 0,
+			maxTemp: temps.length ? Math.max(...temps) : undefined,
+			totalPower: powers.length ? powers.reduce((a, b) => a + b, 0) : undefined,
+		})
+	}
+	// Stable order (by name). The rows come back newest-record-first, which
+	// reshuffled the servers on every refresh.
+	return groups.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 }
 
 function getMeterState(value: number, warn = 65, crit = 90): MeterState {
@@ -136,6 +179,8 @@ async function fetchGpuRows(): Promise<GpuRow[]> {
 				name: gpu.n,
 				util: gpu.u ?? 0,
 				vramPct: gpu.mt ? ((gpu.mu ?? 0) / gpu.mt) * 100 : 0,
+				memUsed: gpu.mu ?? 0,
+				memTotal: gpu.mt ?? 0,
 				temp: gpu.t,
 				power: gpu.p,
 				procs: gpu.procs ?? [],
@@ -207,6 +252,9 @@ function GpuProcessesSheet({
 export function GpuStatusTable() {
 	const systems = useStore($allSystemsById)
 	const [rows, setRows] = useState<GpuRow[]>([])
+	// systemId -> collapsed. Missing = expanded, so every server (including
+	// ones added later) shows its GPUs until the user folds it away.
+	const [collapsed, setCollapsed] = useBrowserStorage<Record<string, boolean>>("gpu-status-collapsed", {})
 	const [activeRowKey, setActiveRowKey] = useState<string | undefined>(undefined)
 	const [sheetOpen, setSheetOpen] = useState(false)
 	const activeContainer = useRef<ContainerRecord | null>(null)
@@ -254,76 +302,133 @@ export function GpuStatusTable() {
 		}
 	}, [])
 
+	const groups = useMemo(() => groupRows(rows, systems), [rows, systems])
+
 	if (rows.length === 0) {
 		return null
 	}
 
+	const allExpanded = groups.every((g) => !collapsed[g.systemId])
+	const setAll = (expand: boolean) => setCollapsed(Object.fromEntries(groups.map((g) => [g.systemId, !expand])))
+
 	return (
 		<Card>
 			<CardHeader className="pb-4 px-2 sm:px-6 max-sm:pt-5 max-sm:pb-1">
-				<div className="px-2 sm:px-1">
+				<div className="px-2 sm:px-1 flex items-center justify-between gap-2">
 					<CardTitle className="flex items-center gap-2">
 						<GpuIcon className="size-4" />
 						GPU Status by Server
 					</CardTitle>
+					<Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setAll(!allExpanded)}>
+						{allExpanded ? <ChevronsDownUpIcon className="size-4" /> : <ChevronsUpDownIcon className="size-4" />}
+						{allExpanded ? "Collapse all" : "Expand all"}
+					</Button>
 				</div>
 			</CardHeader>
 			<CardContent className="max-sm:p-2 overflow-x-auto">
-				<table className="w-full text-sm">
+				<table className="w-full min-w-[44rem] text-sm table-fixed">
 					<thead>
 						<tr className="text-left text-muted-foreground border-b">
-							<th className="font-normal py-2 px-2">Server</th>
-							<th className="font-normal py-2 px-2">GPU</th>
-							<th className="font-normal py-2 px-2">Util %</th>
-							<th className="font-normal py-2 px-2">VRAM %</th>
-							<th className="font-normal py-2 px-2">Temp C</th>
-							<th className="font-normal py-2 px-2">Power W</th>
-							<th className="font-normal py-2 px-2"></th>
+							<th className="font-normal py-2 px-2 w-[24%]">Server</th>
+							<th className="font-normal py-2 px-2 w-[8%]">GPU</th>
+							<th className="font-normal py-2 px-2 w-[22%]">Util %</th>
+							<th className="font-normal py-2 px-2 w-[22%]">VRAM %</th>
+							<th className="font-normal py-2 px-2 w-[9%]">Temp C</th>
+							<th className="font-normal py-2 px-2 w-[10%]">Power W</th>
+							<th className="font-normal py-2 px-2 w-[5%]"></th>
 						</tr>
 					</thead>
 					<tbody>
-						{rows.map((row) => {
-							const key = `${row.systemId}-${row.index}`
+						{groups.map((group) => {
+							const isOpen = !collapsed[group.systemId]
+							const status = systems[group.systemId]?.status
+							const offline = status !== undefined && status !== SystemStatus.Up
+							const toggle = () => setCollapsed({ ...collapsed, [group.systemId]: isOpen })
 							return (
-								<tr
-									key={key}
-									className="border-b last:border-0 hover:bg-muted/50 cursor-pointer"
-									onClick={() => {
-										setActiveRowKey(key)
-										setSheetOpen(true)
-									}}
-								>
-									<td className="py-2 px-2">
-										<Link
-											href={getPagePath($router, "system", { id: row.systemId })}
-											className="hover:underline font-medium inline-flex items-center gap-1.5"
-											onClick={(e) => e.stopPropagation()}
-										>
-											<span
-												className={cn(
-													"inline-block size-1.5 rounded-full shrink-0",
-													getServerDotColor(
-														systems[row.systemId]?.name ?? row.systemId,
-														Object.values(systems).map((s) => s.name)
-													)
-												)}
-											/>
-											{systems[row.systemId]?.name ?? row.systemId}
-										</Link>
-									</td>
-									<td className="py-2 px-2 tabular-nums">{row.index}</td>
-									<td className="py-2 px-2 min-w-32">
-										<Meter value={row.util} />
-									</td>
-									<td className="py-2 px-2 min-w-32">
-										<Meter value={row.vramPct} />
-									</td>
-									<td className="py-2 px-2 tabular-nums">{row.temp !== undefined ? `${row.temp.toFixed(0)} °C` : "-"}</td>
-									<td className="py-2 px-2 tabular-nums">{row.power !== undefined ? `${row.power.toFixed(1)} W` : "-"}</td>
-									<td className="py-2 px-2 text-muted-foreground">
-										<HashIcon className="size-4" aria-label="View processes" />
-									</td>
-								</tr>
+								<Fragment key={group.systemId}>
+									<tr
+										className={cn("border-b bg-muted/30 hover:bg-muted/60 cursor-pointer", offline && "opacity-60")}
+										onClick={toggle}
+									>
+										<td className="py-2 px-2">
+											<span className="inline-flex items-center gap-1.5 font-medium">
+												<button
+													type="button"
+													aria-expanded={isOpen}
+													aria-label={`${isOpen ? "Collapse" : "Expand"} ${group.name}`}
+													className="text-muted-foreground"
+													onClick={(e) => {
+														e.stopPropagation()
+														toggle()
+													}}
+												>
+													<ChevronRightIcon className={cn("size-4 transition-transform", isOpen && "rotate-90")} />
+												</button>
+												<span
+													className={cn(
+														"inline-block size-1.5 rounded-full shrink-0",
+														getServerDotColor(
+															group.name,
+															Object.values(systems).map((s) => s.name)
+														)
+													)}
+												/>
+												<Link
+													href={getPagePath($router, "system", { id: group.systemId })}
+													className="hover:underline"
+													onClick={(e) => e.stopPropagation()}
+												>
+													{group.name}
+												</Link>
+												{offline && <span className="text-xs font-normal text-muted-foreground">({status})</span>}
+											</span>
+										</td>
+										<td className="py-2 px-2 tabular-nums" title="GPUs in use / total">
+											{group.occupied}/{group.gpus.length}
+										</td>
+										<td className="py-2 px-2 min-w-32">
+											<Meter value={group.avgUtil} />
+										</td>
+										<td className="py-2 px-2 min-w-32">
+											<Meter value={group.vramPct} />
+										</td>
+										<td className="py-2 px-2 tabular-nums" title="Hottest GPU">
+											{group.maxTemp !== undefined ? `${group.maxTemp.toFixed(0)} °C` : "-"}
+										</td>
+										<td className="py-2 px-2 tabular-nums" title="Total power">
+											{group.totalPower !== undefined ? `${group.totalPower.toFixed(1)} W` : "-"}
+										</td>
+										<td className="py-2 px-2"></td>
+									</tr>
+									{isOpen &&
+										group.gpus.map((row) => {
+											const key = `${row.systemId}-${row.index}`
+											return (
+												<tr
+													key={key}
+													className={cn("border-b last:border-0 hover:bg-muted/50 cursor-pointer", offline && "opacity-60")}
+													onClick={() => {
+														setActiveRowKey(key)
+														setSheetOpen(true)
+													}}
+												>
+													<td className="py-2 ps-9 pe-2 text-muted-foreground truncate" title={row.name}>{row.name}</td>
+													<td className="py-2 px-2 tabular-nums">{row.index}</td>
+													<td className="py-2 px-2 min-w-32">
+														<Meter value={row.util} />
+													</td>
+													<td className="py-2 px-2 min-w-32">
+														<Meter value={row.vramPct} />
+													</td>
+													<td className="py-2 px-2 tabular-nums">{row.temp !== undefined ? `${row.temp.toFixed(0)} °C` : "-"}</td>
+													<td className="py-2 px-2 tabular-nums">{row.power !== undefined ? `${row.power.toFixed(1)} W` : "-"}</td>
+													<td className="py-2 px-2 text-muted-foreground">
+														<HashIcon className="size-4" aria-label="View processes" />
+													</td>
+												</tr>
+											)
+										})}
+								</Fragment>
 							)
 						})}
 					</tbody>
