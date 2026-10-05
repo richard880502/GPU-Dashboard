@@ -40,6 +40,7 @@ import os
 import pwd
 import re
 import subprocess
+import sys
 import time
 
 import docker
@@ -50,29 +51,36 @@ CGROUP_ID_RE = re.compile(r"([0-9a-f]{64})")
 
 
 def sh(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True, check=False).stdout
+    # A failing nvidia-smi prints its error on *stdout* (e.g. "Failed to
+    # initialize NVML: Unknown Error" once the container has lost its GPU
+    # device permissions), which the parsers below used to take for data and
+    # crash on -- turning one bad scrape into HTTP 500 for the whole exporter.
+    # Report it in the container log instead and treat it as "no GPUs/apps".
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        message = (result.stdout or result.stderr).strip()
+        print(f"{cmd[0]} exited {result.returncode}: {message}", file=sys.stderr, flush=True)
+        return ""
+    return result.stdout
+
+
+def csv_rows(out, columns):
+    """Split `--format=csv,noheader` output into rows of exactly `columns`
+    fields, skipping any line that isn't one (warnings, blank lines)."""
+    for line in out.strip().splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) == columns:
+            yield parts
 
 
 def gpu_uuid_index_map():
     out = sh(["nvidia-smi", "--query-gpu=uuid,index", "--format=csv,noheader"])
-    mapping = {}
-    for line in out.strip().splitlines():
-        if not line.strip():
-            continue
-        uuid, idx = (part.strip() for part in line.split(","))
-        mapping[uuid] = idx
-    return mapping
+    return {uuid: idx for uuid, idx in csv_rows(out, 2)}
 
 
 def gpu_compute_apps():
     out = sh(["nvidia-smi", "--query-compute-apps=gpu_uuid,pid", "--format=csv,noheader"])
-    apps = []
-    for line in out.strip().splitlines():
-        if not line.strip():
-            continue
-        uuid, pid = (part.strip() for part in line.split(","))
-        apps.append((uuid, pid))
-    return apps
+    return [(uuid, pid) for uuid, pid in csv_rows(out, 2)]
 
 
 def username_for_pid(pid):

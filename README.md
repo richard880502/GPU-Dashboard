@@ -719,6 +719,57 @@ docker inspect beszel-agent \
   | grep GPU_COLLECTOR
 ```
 
+## `Failed to initialize NVML: Unknown Error` inside the containers
+
+Symptom: a node's GPU stats stop updating or read 0%, GPU processes disappear
+(or show up on `nvidia-smi` but not in the dashboard), and
+`http://<node>:5052/metrics` returns HTTP 500 -- while `nvidia-smi` on the
+host itself works fine. Seen on wingene-82 (GB10).
+
+```bash
+# host works, containers don't?
+nvidia-smi -L
+for c in beszel-agent nvitop-exporter gpu-process-exporter; do
+  echo -n "$c: "; docker exec $c nvidia-smi -L 2>&1 | head -1
+done
+```
+
+If the containers print `Failed to initialize NVML: Unknown Error`, this is the
+known NVIDIA container issue: with Docker's `systemd` cgroup driver
+(`docker info | grep -i cgroup`), GPU access granted only through `gpus: all`
+is dropped when systemd reloads (`systemctl daemon-reload`, an unattended
+upgrade, ...). The containers keep running but can no longer open the GPU.
+
+**Quick fix** -- recreate the monitoring containers (restarts only these; works
+until the next reload):
+
+```bash
+docker restart beszel-agent nvitop-exporter gpu-process-exporter
+```
+
+**Permanent fix** -- list this host's NVIDIA device nodes explicitly, which
+survives the reload. On the node, in `deploy/standalone`:
+
+```bash
+./gen-nvidia-devices.sh          # monitored-node-compose.yml: all three services
+# exporter-compose.yml instead:  ./gen-nvidia-devices.sh nvitop-exporter gpu-process-exporter
+
+docker compose --env-file .env.node \
+  -f monitored-node-compose.yml \
+  -f nvidia-devices.override.yml \
+  up -d
+```
+
+The generated `nvidia-devices.override.yml` is specific to the host (its number
+of GPUs) and is git-ignored. Include `-f nvidia-devices.override.yml` in every
+later `docker compose` command for that node, or the devices are dropped again
+on the next recreate. Changing Docker's cgroup driver to `cgroupfs` also works
+but restarts every container on the host, so prefer the override.
+
+`gpu-process-exporter` v1.4.1+ no longer returns HTTP 500 in this state: it
+logs the `nvidia-smi` error (`docker logs gpu-process-exporter`) and reports
+no processes until GPU access is restored.
+
 ## GPU process shows as `host` instead of a container
 
 For Docker workloads:

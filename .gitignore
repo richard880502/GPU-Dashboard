@@ -9,3 +9,6 @@ __pycache__/
 
 # slack-monitor's persisted dashboard-message identity (channel+ts) -- not source
 /deploy/slack-monitor-data/
+
+# Per-host NVIDIA device list written by deploy/standalone/gen-nvidia-devices.sh
+nvidia-devices.override.yml
