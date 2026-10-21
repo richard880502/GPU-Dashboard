@@ -332,7 +332,8 @@ async function getLogs(container: ContainerRecord): Promise<{ html: string; raw:
 		return { html, raw }
 	} catch (error) {
 		console.error(error)
-		return { html: "", raw: "" }
+		// say so instead of an empty panel, which looks like "no logs"
+		return { html: escapeHtml(t`Could not load logs. The container may have been removed.`), raw: "" }
 	}
 }
 
@@ -450,7 +451,7 @@ async function getInfoHtml(container: ContainerRecord): Promise<{ html: string; 
 		return { html, pid }
 	} catch (error) {
 		console.error(error)
-		return { html: "" }
+		return { html: escapeHtml(t`Could not load container details. The container may have been removed.`) }
 	}
 }
 
