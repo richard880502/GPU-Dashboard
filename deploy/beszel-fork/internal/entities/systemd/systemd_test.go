@@ -3,6 +3,7 @@
 package systemd_test
 
 import (
+	"runtime"
 	"testing"
 	"time"
 
@@ -69,12 +70,16 @@ func TestServiceUpdateCPUPercent(t *testing.T) {
 		service.PrevCpuUsage = 1000
 		service.PrevReadTime = time.Now().Add(-time.Second)
 
-		service.UpdateCPUPercent(8000000000) // 8 seconds of CPU time
+		// The percentage is relative to all cores, so a fixed amount of CPU
+		// time (it used to be 8s) exceeds 100% on machines with fewer than 8
+		// cores, e.g. 4-core CI runners. Use half of every core instead.
+		halfLoad := uint64(runtime.NumCPU()) * 500_000_000
+		service.UpdateCPUPercent(halfLoad) // ~1s of wall time at 50% on every core
 
 		// CPU usage should be positive and reasonable
 		assert.Greater(t, service.Cpu, 0.0, "CPU usage should be positive")
 		assert.LessOrEqual(t, service.Cpu, 100.0, "CPU usage should not exceed 100%")
-		assert.Equal(t, uint64(8000000000), service.PrevCpuUsage)
+		assert.Equal(t, halfLoad, service.PrevCpuUsage)
 		assert.Greater(t, service.CpuPeak, 0.0, "CPU peak should be set")
 	})
 
@@ -82,7 +87,7 @@ func TestServiceUpdateCPUPercent(t *testing.T) {
 		service := &systemd.Service{}
 		service.PrevCpuUsage = 1000
 		service.PrevReadTime = time.Now().Add(-time.Second)
-		service.UpdateCPUPercent(8000000000) // Set initial peak to ~50%
+		service.UpdateCPUPercent(uint64(runtime.NumCPU()) * 500_000_000) // Set initial peak to ~50%
 		initialPeak := service.CpuPeak
 
 		// Now try with much lower CPU usage - should not update peak

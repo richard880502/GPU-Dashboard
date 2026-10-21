@@ -1,0 +1,97 @@
+# Checks that used to be run by hand before every release. Runs on every
+# pull request and on pushes to main; images are still built and pushed
+# manually (see README), this only verifies that they would build.
+name: CI
+
+on:
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", "inventory/**"]
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", "inventory/**"]
+  workflow_dispatch:
+
+# a newer push to the same branch/PR cancels the run still in progress
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go tests (hub + agent)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/beszel-fork
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: deploy/beszel-fork/go.mod
+          cache-dependency-path: deploy/beszel-fork/go.sum
+      # internal/site embeds dist/ (the built frontend, not in git) and fails
+      # to compile without it; the `no_ui` tag does not skip that. Tests
+      # don't need the real UI, so a placeholder page is enough.
+      - name: Placeholder frontend for go:embed
+        run: mkdir -p internal/site/dist && echo '<!doctype html>' > internal/site/dist/index.html
+      # same as `make test`
+      - run: go test -tags='testing no_ui' ./...
+
+  frontend:
+    name: Frontend typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/beszel-fork/internal/site
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx tsc --noEmit -p .
+      - run: bun run build
+
+  python:
+    name: Python syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m py_compile deploy/docker/gpu-process-exporter/gpu_process_exporter.py
+          python -m compileall -q deploy/docker/slack-monitor/slack_monitor
+
+  compose:
+    name: Compose files
+    runs-on: ubuntu-latest
+    # placeholder values for the variables the compose files mark as required
+    env:
+      USER_PASSWORD: ci
+      HUB_SSH_PUBLIC_KEY: ci
+      HUB_URL: http://hub.invalid:13000
+      HOSTNAME: ci
+      SMART_DEVICE_1: /dev/null
+      SLACK_BOT_TOKEN: ci
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          for f in deploy/standalone/*.yml; do
+            echo "== $f"
+            docker compose -f "$f" config -q
+          done
+
+  images:
+    name: Build ${{ matrix.image }} image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [gpu-process-exporter, nvitop-exporter, slack-monitor]
+    steps:
+      - uses: actions/checkout@v5
+      # build only (linux/amd64), nothing is pushed
+      - run: docker build -t ci/${{ matrix.image }} deploy/docker/${{ matrix.image }}
