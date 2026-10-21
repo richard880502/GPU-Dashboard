@@ -32,7 +32,12 @@ jobs:
         with:
           go-version-file: deploy/beszel-fork/go.mod
           cache-dependency-path: deploy/beszel-fork/go.sum
-      # same as `make test`; no_ui skips embedding the built frontend
+      # internal/site embeds dist/ (the built frontend, not in git) and fails
+      # to compile without it; the `no_ui` tag does not skip that. Tests
+      # don't need the real UI, so a placeholder page is enough.
+      - name: Placeholder frontend for go:embed
+        run: mkdir -p internal/site/dist && echo '<!doctype html>' > internal/site/dist/index.html
+      # same as `make test`
       - run: go test -tags='testing no_ui' ./...
 
   frontend:
