@@ -27,8 +27,8 @@ jobs:
       run:
         working-directory: deploy/beszel-fork
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: deploy/beszel-fork/go.mod
           cache-dependency-path: deploy/beszel-fork/go.sum
@@ -47,7 +47,7 @@ jobs:
       run:
         working-directory: deploy/beszel-fork/internal/site
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bunx tsc --noEmit -p .
@@ -57,8 +57,8 @@ jobs:
     name: Python syntax
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - run: |
@@ -77,7 +77,7 @@ jobs:
       SMART_DEVICE_1: /dev/null
       SLACK_BOT_TOKEN: ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: |
           for f in deploy/standalone/*.yml; do
             echo "== $f"
@@ -92,6 +92,6 @@ jobs:
       matrix:
         image: [gpu-process-exporter, nvitop-exporter, slack-monitor]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # build only (linux/amd64), nothing is pushed
       - run: docker build -t ci/${{ matrix.image }} deploy/docker/${{ matrix.image }}
