@@ -265,11 +265,16 @@ export function GpuStatusTable() {
 	// ContainerSheet -- and the /api/beszel/containers/logs|info endpoints it
 	// calls -- need. Only real Docker containers have one; host/k8s-attributed
 	// processes never reach here (ProcessContainerLabel doesn't make them clickable).
+	// A recreated container keeps its name but gets a new id, and the old
+	// record lingers until the hourly cleanup -- take the most recently
+	// updated one, which is the container that is actually running.
 	async function openContainer(systemId: string, containerName: string) {
 		try {
 			const record = await pb
 				.collection<ContainerRecord>("containers")
-				.getFirstListItem(pb.filter("system = {:system} && name = {:name}", { system: systemId, name: containerName }))
+				.getFirstListItem(pb.filter("system = {:system} && name = {:name}", { system: systemId, name: containerName }), {
+					sort: "-updated",
+				})
 			activeContainer.current = record
 			setContainerSheetOpen(true)
 		} catch (error) {
