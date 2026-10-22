@@ -15,6 +15,7 @@ import {
 	SettingsIcon,
 	UserIcon,
 	UsersIcon,
+	ZapIcon,
 } from "lucide-react"
 import { lazy, Suspense, useState } from "react"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -110,6 +111,13 @@ export default function Navbar() {
 								<span>S.M.A.R.T.</span>
 							</DropdownMenuItem>
 							<DropdownMenuItem
+								onClick={() => navigate(getPagePath($router, "gpu_power"))}
+								className="flex items-center"
+							>
+								<ZapIcon className="h-4 w-4 me-2.5" strokeWidth={1.5} />
+								<Trans>GPU Power</Trans>
+							</DropdownMenuItem>
+							<DropdownMenuItem
 								onClick={() => navigate(getPagePath($router, "monitors"))}
 								className="flex items-center"
 							>
@@ -186,6 +194,21 @@ export default function Navbar() {
 						</Link>
 					</TooltipTrigger>
 					<TooltipContent>S.M.A.R.T.</TooltipContent>
+				</Tooltip>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Link
+							href={getPagePath($router, "gpu_power")}
+							className={cn("hidden md:grid", buttonVariants({ variant: "ghost", size: "icon" }))}
+							aria-label="GPU Power"
+							onMouseEnter={() => import("@/components/routes/gpu-power")}
+						>
+							<ZapIcon className="h-[1.2rem] w-[1.2rem]" strokeWidth={1.5} />
+						</Link>
+					</TooltipTrigger>
+					<TooltipContent>
+						<Trans>GPU Power</Trans>
+					</TooltipContent>
 				</Tooltip>
 				<Tooltip>
 					<TooltipTrigger asChild>

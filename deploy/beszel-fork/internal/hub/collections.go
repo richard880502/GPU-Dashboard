@@ -118,6 +118,19 @@ func setCollectionAuthSettings(app core.App) error {
 		return err
 	}
 
+	// gpu_power_daily keeps rows of removed systems (system cleared), which
+	// no membership rule can match; show those to any signed-in user.
+	gpuPowerReadRule := systemScopedReadRule
+	if shareAllSystems != "true" {
+		gpuPowerReadRule = authenticatedRule + " && (system = \"\" || system.users.id ?= @request.auth.id)"
+	}
+	if err := applyCollectionRules(app, []string{"gpu_power_daily"}, collectionRules{
+		list: &gpuPowerReadRule,
+		view: &gpuPowerReadRule,
+	}); err != nil {
+		return err
+	}
+
 	if err := applyCollectionRules(app, []string{"system_details"}, collectionRules{
 		list: &systemScopedReadRule,
 		view: &systemScopedReadRule,
