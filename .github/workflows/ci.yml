@@ -64,6 +64,7 @@ jobs:
       - run: |
           python -m py_compile deploy/docker/gpu-process-exporter/gpu_process_exporter.py
           python -m compileall -q deploy/docker/slack-monitor/slack_monitor
+          python -m py_compile deploy/standalone/upgrade-agent.py
 
   compose:
     name: Compose files
