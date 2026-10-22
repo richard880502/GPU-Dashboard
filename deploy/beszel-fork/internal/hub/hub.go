@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/henrygd/beszel/internal/alerts"
 	"github.com/henrygd/beszel/internal/hub/config"
@@ -30,6 +31,7 @@ type Hub struct {
 	*alerts.AlertManager
 	um     *users.UserManager
 	rm     *records.RecordManager
+	gpuPow *records.GpuPowerAccumulator
 	sm     *systems.SystemManager
 	hb     *heartbeat.Heartbeat
 	hbStop chan struct{}
@@ -44,6 +46,8 @@ func NewHub(app core.App) *Hub {
 	hub.AlertManager = alerts.NewAlertManager(hub)
 	hub.um = users.NewUserManager(hub)
 	hub.rm = records.NewRecordManager(hub)
+	hub.gpuPow = records.NewGpuPowerAccumulator(hub, time.Local)
+	hub.gpuPow.BindHooks()
 	hub.sm = systems.NewSystemManager(hub)
 	hub.hb = heartbeat.New(app, utils.GetEnv)
 	if hub.hb != nil {
@@ -112,6 +116,12 @@ func (h *Hub) StartHub() error {
 
 	bindNetworkMonitorsEvents(h)
 
+	// keep the last minute of GPU energy on shutdown / restart
+	h.App.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
+		_ = h.gpuPow.Flush()
+		return e.Next()
+	})
+
 	pb, ok := h.App.(*pocketbase.PocketBase)
 	if !ok {
 		return errors.New("not a pocketbase app")
@@ -145,6 +155,8 @@ func (h *Hub) registerCronJobs(_ *core.ServeEvent) error {
 	h.Cron().MustAdd("delete old records", "8 * * * *", h.rm.DeleteOldRecords)
 	// create longer records every 10 minutes
 	h.Cron().MustAdd("create longer records", "*/10 * * * *", h.rm.CreateLongerRecords)
+	// add accumulated GPU energy to the permanent daily history every minute
+	h.Cron().MustAdd("save gpu power history", "* * * * *", func() { _ = h.gpuPow.Flush() })
 	return nil
 }
 

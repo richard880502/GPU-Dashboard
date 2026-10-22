@@ -2341,3 +2341,115 @@ msgstr "是"
 #: src/components/routes/settings/layout.tsx
 msgid "Your user settings have been updated."
 msgstr "已更新您的使用者設定"
+
+#. gpu-monitoring fork
+msgid "All time"
+msgstr "全部"
+
+#. gpu-monitoring fork
+msgid "Avg power"
+msgstr "平均功耗"
+
+#. gpu-monitoring fork
+msgid "Avg utilization"
+msgstr "平均使用率"
+
+#. gpu-monitoring fork
+msgid "By GPU"
+msgstr "依 GPU"
+
+#. gpu-monitoring fork
+msgid "By server"
+msgstr "依主機"
+
+#. gpu-monitoring fork
+msgid "Could not load container details. The container may have been removed."
+msgstr "無法載入容器詳細資料，容器可能已被移除。"
+
+#. gpu-monitoring fork
+msgid "Could not load logs. The container may have been removed."
+msgstr "無法載入日誌，容器可能已被移除。"
+
+#. gpu-monitoring fork
+msgid "Coverage"
+msgstr "資料涵蓋率"
+
+#. gpu-monitoring fork
+msgid "Coverage is the share of the time the GPU was reporting. Lower values mean the server or agent was offline for part of the period."
+msgstr "資料涵蓋率是 GPU 有回報資料的時間比例；偏低代表主機或 agent 在這段期間曾經離線。"
+
+#. gpu-monitoring fork
+msgid "Daily average"
+msgstr "每日平均"
+
+#. gpu-monitoring fork
+msgid "Daily energy (kWh)"
+msgstr "每日用電量 (kWh)"
+
+#. gpu-monitoring fork
+msgid "Daily energy use of every GPU, kept permanently. Days follow the hub's time zone."
+msgstr "每張 GPU 每天的用電量，永久保存。日期依 hub 的時區計算。"
+
+#. gpu-monitoring fork
+msgid "Energy"
+msgstr "用電量"
+
+#. gpu-monitoring fork
+msgid "Estimated: filled in from older averaged statistics, so peaks and short gaps are not reflected."
+msgstr "估計值：由較舊的平均統計回填，無法反映尖峰與短暫中斷。"
+
+#. gpu-monitoring fork
+msgid "GPU Power"
+msgstr "GPU 用電"
+
+#. gpu-monitoring fork
+msgid "GPU Power History"
+msgstr "GPU 用電紀錄"
+
+#. gpu-monitoring fork
+msgid "Highest day"
+msgstr "最高單日"
+
+#. gpu-monitoring fork
+msgid "Last 30 days"
+msgstr "最近 30 天"
+
+#. gpu-monitoring fork
+msgid "Last 7 days"
+msgstr "最近 7 天"
+
+#. gpu-monitoring fork
+msgid "Last 90 days"
+msgstr "最近 90 天"
+
+#. gpu-monitoring fork
+msgid "Last year"
+msgstr "最近一年"
+
+#. gpu-monitoring fork
+msgid "No GPU power data yet."
+msgstr "還沒有 GPU 用電資料。"
+
+#. gpu-monitoring fork
+msgid "Peak power"
+msgstr "最高功耗"
+
+#. gpu-monitoring fork
+msgid "Removed"
+msgstr "已移除"
+
+#. gpu-monitoring fork
+msgid "Resize column"
+msgstr "調整欄寬"
+
+#. gpu-monitoring fork
+msgid "Server"
+msgstr "主機"
+
+#. gpu-monitoring fork
+msgid "Today, in progress"
+msgstr "今天，進行中"
+
+#. gpu-monitoring fork
+msgid "Total energy"
+msgstr "總用電量"

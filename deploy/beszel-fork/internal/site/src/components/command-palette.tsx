@@ -16,6 +16,7 @@ import {
 	ServerIcon,
 	SettingsIcon,
 	UsersIcon,
+	ZapIcon,
 } from "lucide-react"
 import { memo, useEffect, useMemo } from "react"
 import {
@@ -119,6 +120,20 @@ export default memo(function CommandPalette({ open, setOpen }: { open: boolean; 
 						>
 							<HardDriveIcon className="me-2 size-4" />
 							<span>S.M.A.R.T.</span>
+							<CommandShortcut>
+								<Trans>Page</Trans>
+							</CommandShortcut>
+						</CommandItem>
+						<CommandItem
+							onSelect={() => {
+								navigate(getPagePath($router, "gpu_power"))
+								setOpen(false)
+							}}
+						>
+							<ZapIcon className="me-2 size-4" />
+							<span>
+								<Trans>GPU Power</Trans>
+							</span>
 							<CommandShortcut>
 								<Trans>Page</Trans>
 							</CommandShortcut>

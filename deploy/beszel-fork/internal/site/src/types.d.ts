@@ -374,6 +374,26 @@ export interface ContainerRecord extends RecordModel {
 	gpuIndex?: string
 }
 
+// gpu-monitoring fork addition (not upstream): one row per system / GPU / day,
+// kept permanently (internal/records/gpu_power.go)
+export interface GpuPowerDailyRecord extends RecordModel {
+	/** empty once the system has been removed; system_name keeps its name */
+	system: string
+	system_name: string
+	gpu: string
+	name: string
+	/** YYYY-MM-DD in the hub's time zone */
+	day: string
+	energy_wh: number
+	max_w: number
+	/** time covered by samples */
+	seconds: number
+	/** seconds weighted by utilization */
+	busy_seconds: number
+	/** backfilled from averaged history */
+	estimated: boolean
+}
+
 export type ChartTimes = "1m" | "1h" | "12h" | "24h" | "1w" | "30d"
 
 export interface ChartTimeData {
