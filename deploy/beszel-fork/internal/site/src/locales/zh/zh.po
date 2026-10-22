@@ -2347,6 +2347,10 @@ msgid "All time"
 msgstr "全部"
 
 #. gpu-monitoring fork
+msgid "An estimate of machine use: CPU package and GPUs only. The motherboard, memory, disks, fans and power supply losses are not included, so the use at the outlet is higher."
+msgstr "這是整機用電的估計值，只包含 CPU（處理器封裝）與 GPU；主機板、記憶體、硬碟、風扇與電源損耗不在內，所以插座端的實際用電會更高。"
+
+#. gpu-monitoring fork
 msgid "Avg power"
 msgstr "平均功耗"
 
@@ -2355,12 +2359,24 @@ msgid "Avg utilization"
 msgstr "平均使用率"
 
 #. gpu-monitoring fork
-msgid "By GPU"
-msgstr "依 GPU"
+msgid "By device"
+msgstr "依裝置"
 
 #. gpu-monitoring fork
 msgid "By server"
 msgstr "依主機"
+
+#. gpu-monitoring fork
+msgid "CPU package"
+msgstr "處理器封裝"
+
+#. gpu-monitoring fork
+msgid "CPU power is recorded from {0}."
+msgstr "CPU 用電從 {0} 開始記錄。"
+
+#. gpu-monitoring fork
+msgid "CPU vs GPU"
+msgstr "CPU 與 GPU"
 
 #. gpu-monitoring fork
 msgid "Could not load container details. The container may have been removed."
@@ -2375,8 +2391,8 @@ msgid "Coverage"
 msgstr "資料涵蓋率"
 
 #. gpu-monitoring fork
-msgid "Coverage is the share of the time the GPU was reporting. Lower values mean the server or agent was offline for part of the period."
-msgstr "資料涵蓋率是 GPU 有回報資料的時間比例；偏低代表主機或 agent 在這段期間曾經離線。"
+msgid "Coverage is the share of the time the device was reporting. Lower values mean the server or agent was offline for part of the period."
+msgstr "資料涵蓋率是裝置有回報資料的時間比例；偏低代表主機或 agent 在這段期間曾經離線。"
 
 #. gpu-monitoring fork
 msgid "Daily average"
@@ -2387,8 +2403,8 @@ msgid "Daily energy (kWh)"
 msgstr "每日用電量 (kWh)"
 
 #. gpu-monitoring fork
-msgid "Daily energy use of every GPU, kept permanently. Days follow the hub's time zone."
-msgstr "每張 GPU 每天的用電量，永久保存。日期依 hub 的時區計算。"
+msgid "Daily energy use of every GPU and CPU package, kept permanently. Days follow the hub's time zone."
+msgstr "每張 GPU 與 CPU（處理器封裝）每天的用電量，永久保存。日期依 hub 的時區計算。"
 
 #. gpu-monitoring fork
 msgid "Energy"
@@ -2397,14 +2413,6 @@ msgstr "用電量"
 #. gpu-monitoring fork
 msgid "Estimated: filled in from older averaged statistics, so peaks and short gaps are not reflected."
 msgstr "估計值：由較舊的平均統計回填，無法反映尖峰與短暫中斷。"
-
-#. gpu-monitoring fork
-msgid "GPU Power"
-msgstr "GPU 用電"
-
-#. gpu-monitoring fork
-msgid "GPU Power History"
-msgstr "GPU 用電紀錄"
 
 #. gpu-monitoring fork
 msgid "Highest day"
@@ -2427,12 +2435,20 @@ msgid "Last year"
 msgstr "最近一年"
 
 #. gpu-monitoring fork
-msgid "No GPU power data yet."
-msgstr "還沒有 GPU 用電資料。"
+msgid "No power data yet."
+msgstr "還沒有用電資料。"
 
 #. gpu-monitoring fork
 msgid "Peak power"
 msgstr "最高功耗"
+
+#. gpu-monitoring fork
+msgid "Power History"
+msgstr "用電紀錄"
+
+#. gpu-monitoring fork
+msgid "Power Usage"
+msgstr "用電"
 
 #. gpu-monitoring fork
 msgid "Removed"

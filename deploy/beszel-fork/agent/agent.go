@@ -42,6 +42,7 @@ type Agent struct {
 	systemDetails             system.Details                                        // Host system details (static, once-per-connection)
 	detailsDirty              bool                                                  // Whether system details have changed and need to be resent
 	gpuManager                *GPUManager                                           // Manages GPU data
+	cpuPower                  *cpuPowerReader                                       // CPU package power (RAPL), nil if unavailable
 	cache                     *systemDataCache                                      // Cache for system stats based on cache time
 	connectionManager         *ConnectionManager                                    // Channel to signal connection events
 	handlerRegistry           *HandlerRegistry                                      // Registry for routing incoming messages
@@ -164,6 +165,9 @@ func NewAgent(dataDir ...string) (agent *Agent, err error) {
 	if err != nil {
 		slog.Debug("SMART", "err", err)
 	}
+
+	// CPU package power (gpu-monitoring fork addition)
+	agent.cpuPower = newCpuPowerReader()
 
 	// initialize GPU manager
 	agent.gpuManager, err = NewGPUManager()
