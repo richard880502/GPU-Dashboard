@@ -228,3 +228,58 @@ func TestGpuPowerClampsBogusReadings(t *testing.T) {
 	assert.Equal(t, 0.0, row.GetFloat("energy_wh"))
 	assert.InDelta(t, 10, row.GetFloat("busy_seconds"), 1e-9) // capped at 100%
 }
+
+func TestGpuPowerRecordsCpuPackage(t *testing.T) {
+	hub, sys := gpuPowerTestSystem(t)
+	acc := records.NewGpuPowerAccumulator(hub, time.UTC)
+	acc.BindHooks()
+	collection, err := hub.FindCollectionByNameOrId("system_stats")
+	require.NoError(t, err)
+	save := func(stats system.Stats) {
+		rec := core.NewRecord(collection)
+		rec.Set("system", sys.Id)
+		rec.Set("type", "1m")
+		rec.Set("stats", stats)
+		require.NoError(t, hub.SaveNoValidate(rec))
+	}
+	save(system.Stats{Cpu: 30, CpuPower: 65, GPUData: gpus(250, 40)})
+	time.Sleep(1100 * time.Millisecond)
+	save(system.Stats{Cpu: 30, CpuPower: 65, GPUData: gpus(250, 40)})
+	require.NoError(t, acc.Flush())
+
+	recs, err := hub.FindAllRecords(records.GpuPowerCollection, dbx.HashExp{"system": sys.Id})
+	require.NoError(t, err)
+	byDevice := map[string]*core.Record{}
+	for _, r := range recs {
+		byDevice[r.GetString("gpu")] = r
+	}
+	require.Len(t, byDevice, 2)
+	cpu := byDevice[records.CpuPowerDeviceID]
+	require.NotNil(t, cpu)
+	assert.Equal(t, "CPU", cpu.GetString("name"))
+	assert.Equal(t, 65.0, cpu.GetFloat("max_w"))
+	assert.InDelta(t, 65*cpu.GetFloat("seconds")/3600, cpu.GetFloat("energy_wh"), 1e-6)
+	assert.InDelta(t, 0.3*cpu.GetFloat("seconds"), cpu.GetFloat("busy_seconds"), 1e-6)
+	assert.Equal(t, 250.0, byDevice["0"].GetFloat("max_w"))
+}
+
+func TestGpuPowerSkipsCpuWithoutReading(t *testing.T) {
+	hub, sys := gpuPowerTestSystem(t)
+	acc := records.NewGpuPowerAccumulator(hub, time.UTC)
+	acc.BindHooks()
+	collection, err := hub.FindCollectionByNameOrId("system_stats")
+	require.NoError(t, err)
+	for i := 0; i < 2; i++ {
+		rec := core.NewRecord(collection)
+		rec.Set("system", sys.Id)
+		rec.Set("type", "1m")
+		// older agent / no RAPL access: cpw absent
+		rec.Set("stats", system.Stats{Cpu: 30, GPUData: gpus(250, 40)})
+		require.NoError(t, hub.SaveNoValidate(rec))
+		time.Sleep(1100 * time.Millisecond)
+	}
+	require.NoError(t, acc.Flush())
+	recs, err := hub.FindAllRecords(records.GpuPowerCollection, dbx.HashExp{"system": sys.Id, "gpu": records.CpuPowerDeviceID})
+	require.NoError(t, err)
+	assert.Empty(t, recs)
+}

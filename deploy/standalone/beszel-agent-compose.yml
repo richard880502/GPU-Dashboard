@@ -85,7 +85,7 @@
 #     docker compose -f beszel-agent-compose.yml up -d
 services:
   beszel-agent:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.7.5
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.8.0
     container_name: beszel-agent
     restart: unless-stopped
     network_mode: host
@@ -98,6 +98,10 @@ services:
       - ${SMART_DEVICE_2:-${SMART_DEVICE_1:?}}:${SMART_DEVICE_2:-${SMART_DEVICE_1:?}}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # CPU package power (RAPL) for the power history page. Docker hides this
+      # directory inside containers, so it has to be mounted explicitly.
+      # x86 only: drop this line on ARM hosts (e.g. DGX Spark), which have none.
+      - /sys/devices/virtual/powercap:/host/powercap:ro
       - beszel_agent_data:/var/lib/beszel-agent
       # Direct (non-nested) CRI_SOCKET_PATH hosts need this too, matching
       # whatever path CRI_SOCKET_PATH is set to -- see the comment above.

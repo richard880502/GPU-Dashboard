@@ -115,7 +115,7 @@ export default function Navbar() {
 								className="flex items-center"
 							>
 								<ZapIcon className="h-4 w-4 me-2.5" strokeWidth={1.5} />
-								<Trans>GPU Power</Trans>
+								<Trans>Power Usage</Trans>
 							</DropdownMenuItem>
 							<DropdownMenuItem
 								onClick={() => navigate(getPagePath($router, "monitors"))}
@@ -200,14 +200,14 @@ export default function Navbar() {
 						<Link
 							href={getPagePath($router, "gpu_power")}
 							className={cn("hidden md:grid", buttonVariants({ variant: "ghost", size: "icon" }))}
-							aria-label="GPU Power"
+							aria-label="Power Usage"
 							onMouseEnter={() => import("@/components/routes/gpu-power")}
 						>
 							<ZapIcon className="h-[1.2rem] w-[1.2rem]" strokeWidth={1.5} />
 						</Link>
 					</TooltipTrigger>
 					<TooltipContent>
-						<Trans>GPU Power</Trans>
+						<Trans>Power Usage</Trans>
 					</TooltipContent>
 				</Tooltip>
 				<Tooltip>

@@ -132,7 +132,7 @@ export default memo(function CommandPalette({ open, setOpen }: { open: boolean; 
 						>
 							<ZapIcon className="me-2 size-4" />
 							<span>
-								<Trans>GPU Power</Trans>
+								<Trans>Power Usage</Trans>
 							</span>
 							<CommandShortcut>
 								<Trans>Page</Trans>

@@ -10,6 +10,9 @@ package records
 // system / GPU / day in memory, then added to the matching gpu_power_daily row
 // once a minute. Days are calendar days in the hub's local time zone (TZ env).
 // gpu_power_daily is never pruned.
+//
+// Agents that report CPU package power (RAPL, see agent/cpu_power.go) get an
+// extra row per day under the device id "cpu", accumulated the same way.
 
 import (
 	"database/sql"
@@ -26,6 +29,8 @@ import (
 
 const (
 	GpuPowerCollection = "gpu_power_daily"
+	// device id used for the CPU package row (GPU ids are their indexes)
+	CpuPowerDeviceID = "cpu"
 	// A longer gap between two polls means the agent or hub was down; that
 	// time is left out of the day's coverage instead of being guessed.
 	gpuPowerMaxGap = 2 * time.Minute
@@ -93,7 +98,28 @@ func (m gpuPowerMap) addInterval(systemID string, start, end time.Time, loc *tim
 	}
 }
 
-// GpuPowerAccumulator collects GPU energy from live stats records.
+// powerStats is the part of a stats record the power history reads.
+type powerStats struct {
+	GPUData  map[string]system.GPUData `json:"g"`
+	Cpu      float64                   `json:"cpu"`
+	CpuPower float64                   `json:"cpw"`
+}
+
+// devices returns the GPUs plus, when reported, the CPU package as one more
+// device (utilization = overall CPU usage).
+func (p powerStats) devices() map[string]system.GPUData {
+	if p.CpuPower <= 0 {
+		return p.GPUData
+	}
+	devices := make(map[string]system.GPUData, len(p.GPUData)+1)
+	for id, gpu := range p.GPUData {
+		devices[id] = gpu
+	}
+	devices[CpuPowerDeviceID] = system.GPUData{Name: "CPU", Power: p.CpuPower, Usage: p.Cpu}
+	return devices
+}
+
+// GpuPowerAccumulator collects GPU (and CPU) energy from live stats records.
 type GpuPowerAccumulator struct {
 	app     core.App
 	loc     *time.Location
@@ -110,24 +136,22 @@ func NewGpuPowerAccumulator(app core.App, loc *time.Location) *GpuPowerAccumulat
 func (a *GpuPowerAccumulator) BindHooks() {
 	a.app.OnRecordAfterCreateSuccess("system_stats").BindFunc(func(e *core.RecordEvent) error {
 		if e.Record.GetString("type") == "1m" {
-			var stats struct {
-				GPUData map[string]system.GPUData `json:"g"`
-			}
+			var stats powerStats
 			if err := e.Record.UnmarshalJSONField("stats", &stats); err == nil {
 				at := e.Record.GetDateTime("created").Time()
 				if at.IsZero() {
 					at = time.Now()
 				}
-				a.Add(e.Record.GetString("system"), at, stats.GPUData)
+				a.Add(e.Record.GetString("system"), at, stats.devices())
 			}
 		}
 		return e.Next()
 	})
 }
 
-// Add integrates one poll: the readings taken at `at` stand for the time
-// since the same system's previous poll.
-func (a *GpuPowerAccumulator) Add(systemID string, at time.Time, gpus map[string]system.GPUData) {
+// Add integrates one poll (GPUs, plus the CPU package when reported): the
+// readings taken at `at` stand for the time since the same system's previous poll.
+func (a *GpuPowerAccumulator) Add(systemID string, at time.Time, devices map[string]system.GPUData) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	prev, ok := a.last[systemID]
@@ -135,10 +159,10 @@ func (a *GpuPowerAccumulator) Add(systemID string, at time.Time, gpus map[string
 		return
 	}
 	a.last[systemID] = at
-	if !ok || len(gpus) == 0 || at.Sub(prev) > gpuPowerMaxGap {
+	if !ok || len(devices) == 0 || at.Sub(prev) > gpuPowerMaxGap {
 		return
 	}
-	a.pending.addInterval(systemID, prev, at, a.loc, gpus)
+	a.pending.addInterval(systemID, prev, at, a.loc, devices)
 }
 
 // Flush adds everything accumulated since the last flush to gpu_power_daily.
@@ -253,13 +277,15 @@ func BackfillGpuPowerDaily(app core.App, loc *time.Location) error {
 				if end.After(coveredFrom) {
 					end = coveredFrom
 				}
-				var stats struct {
-					GPUData map[string]system.GPUData `json:"g"`
-				}
-				if err := rec.UnmarshalJSONField("stats", &stats); err != nil || len(stats.GPUData) == 0 {
+				var stats powerStats
+				if err := rec.UnmarshalJSONField("stats", &stats); err != nil {
 					continue
 				}
-				totals.addInterval(sys.Id, start, end, loc, stats.GPUData)
+				devices := stats.devices()
+				if len(devices) == 0 {
+					continue
+				}
+				totals.addInterval(sys.Id, start, end, loc, devices)
 				if start.Before(earliest) {
 					earliest = start
 				}

@@ -55,7 +55,9 @@ type Stats struct {
 	Batteries         map[string]uint8     `json:"bats,omitempty" cbor:"37,keyasint,omitempty"`
 	ZfsPools          map[string]*ZfsPool  `json:"z,omitempty" cbor:"39,keyasint,omitempty"`  // ZFS pool metrics, keyed by pool name
 	DiskIOTotal       [2]uint64            `json:"diot,omitzero" cbor:"38,keyasint,omitzero"` // [total read bytes, total write bytes] cumulative device counters
-
+	// gpu-monitoring fork addition (not upstream): CPU package power in watts
+	// from the RAPL energy counters (0 = not available)
+	CpuPower float64 `json:"cpw,omitempty" cbor:"40,keyasint,omitempty"`
 }
 
 // ZfsPool holds per-pool ZFS metrics for a single collection interval.

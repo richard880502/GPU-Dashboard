@@ -1,5 +1,6 @@
-// gpu-monitoring fork addition (not upstream): daily GPU energy history from
-// the permanent gpu_power_daily collection.
+// gpu-monitoring fork addition (not upstream): daily GPU / CPU package energy
+// history from the permanent gpu_power_daily collection (CPU rows use the
+// device id "cpu").
 import { Trans, useLingui } from "@lingui/react/macro"
 import { useStore } from "@nanostores/react"
 import { ZapIcon } from "lucide-react"
@@ -17,9 +18,11 @@ import { cn, useBrowserStorage } from "@/lib/utils"
 import type { GpuPowerDailyRecord, SystemRecord } from "@/types"
 
 type RangeKey = "7" | "30" | "90" | "365" | "all"
-type GroupKey = "system" | "gpu"
+/** "gpu" = one series per device (kept as the stored value from when only GPUs existed) */
+type GroupKey = "system" | "gpu" | "kind"
 
 const DAY_SECONDS = 86400
+const CPU_DEVICE = "cpu"
 
 /** YYYY-MM-DD in the browser's local time (the hub buckets days the same way in its TZ) */
 function dayString(d: Date) {
@@ -39,11 +42,25 @@ function daysBetween(from: string, to: string) {
 	return days
 }
 
-/** seconds a GPU could have reported on `day` (today: only the part already gone by) */
+/** seconds a device could have reported on `day` (today: only the part already gone by) */
 function possibleSeconds(day: string, today: string) {
 	if (day !== today) return DAY_SECONDS
 	const now = new Date()
 	return now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()
+}
+
+/**
+ * Seconds a device could have reported on its first recorded day: from when its
+ * row was created (a new server, or the CPU after the agent update) instead of
+ * from midnight. Backfilled rows cover whole days, so they are left alone.
+ */
+function firstDaySeconds(row: GpuPowerDailyRecord, today: string) {
+	if (row.estimated || !row.created) return undefined
+	const created = new Date(String(row.created).replace(" ", "T"))
+	if (Number.isNaN(created.getTime()) || dayString(created) !== row.day) return undefined
+	const end =
+		row.day === today ? new Date() : new Date(created.getFullYear(), created.getMonth(), created.getDate() + 1)
+	return Math.max(0, (end.getTime() - created.getTime()) / 1000)
 }
 
 function formatKwh(wh: number) {
@@ -65,6 +82,12 @@ function seriesColor(i: number) {
 
 const compareNames = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true })
 
+const isCpu = (device: string) => device === CPU_DEVICE
+
+function deviceLabel(device: string) {
+	return isCpu(device) ? "CPU" : `GPU ${device}`
+}
+
 function serverKey(row: GpuPowerDailyRecord) {
 	return row.system || `removed:${row.system_name}`
 }
@@ -73,11 +96,11 @@ function serverName(row: GpuPowerDailyRecord, systems: Record<string, SystemReco
 	return systems[row.system]?.name || row.system_name || "?"
 }
 
-interface GpuTotals {
+interface DeviceTotals {
 	key: string
 	server: string
 	serverKey: string
-	gpu: string
+	device: string
 	model: string
 	energyWh: number
 	seconds: number
@@ -91,7 +114,8 @@ interface GpuTotals {
 interface ServerTotals {
 	key: string
 	name: string
-	gpus: GpuTotals[]
+	/** GPUs by index, then the CPU */
+	devices: DeviceTotals[]
 	energyWh: number
 }
 
@@ -113,7 +137,7 @@ export default memo(() => {
 	const from = range === "all" ? "" : addDays(today, -(Number(range) - 1))
 
 	useEffect(() => {
-		document.title = `${t`GPU Power History`} / Beszel`
+		document.title = `${t`Power History`} / Beszel`
 	}, [t])
 
 	useEffect(() => {
@@ -123,7 +147,7 @@ export default memo(() => {
 				.getFullList({
 					filter: from ? pb.filter("day >= {:from}", { from }) : "",
 					sort: "day",
-					fields: "system,system_name,gpu,name,day,energy_wh,max_w,seconds,busy_seconds,estimated",
+					fields: "system,system_name,gpu,name,day,energy_wh,max_w,seconds,busy_seconds,estimated,created",
 					requestKey: "gpu-power-history",
 				})
 				.then((records) => {
@@ -147,18 +171,18 @@ export default memo(() => {
 		if (!rows) return null
 		const days = rows.length ? daysBetween(from || rows[0].day, today) : []
 
-		// per-GPU totals, grouped by server
-		const gpuMap = new Map<string, GpuTotals>()
+		// per-device totals, grouped by server
+		const deviceMap = new Map<string, DeviceTotals>()
 		for (const row of rows) {
 			const sKey = serverKey(row)
 			const key = `${sKey}/${row.gpu}`
-			let g = gpuMap.get(key)
-			if (!g) {
-				g = {
+			let d = deviceMap.get(key)
+			if (!d) {
+				d = {
 					key,
 					server: serverName(row, systems),
 					serverKey: sKey,
-					gpu: row.gpu,
+					device: row.gpu,
 					model: "",
 					energyWh: 0,
 					seconds: 0,
@@ -168,54 +192,75 @@ export default memo(() => {
 					estimated: false,
 					removed: !row.system,
 				}
-				// a GPU counts from its first day in the range, so a newly added one is not "missing" before that
-				for (const d of daysBetween(row.day, today)) {
-					g.possibleSeconds += possibleSeconds(d, today)
+				// a device counts from its first day in the range, so a newly added one (or the CPU,
+				// recorded since the agent update) is not "missing" before that
+				for (const day of daysBetween(row.day, today)) {
+					d.possibleSeconds +=
+						(day === row.day ? firstDaySeconds(row, today) : undefined) ?? possibleSeconds(day, today)
 				}
-				gpuMap.set(key, g)
+				deviceMap.set(key, d)
 			}
-			// the agent appends the index to identical models ("GeForce RTX 3090 1"); the GPU column already shows it
-			g.model = row.name?.replace(new RegExp(` ${row.gpu}$`), "") || g.model
-			g.energyWh += row.energy_wh
-			g.seconds += row.seconds
-			g.busySeconds += row.busy_seconds
-			g.maxW = Math.max(g.maxW, row.max_w)
-			g.estimated ||= row.estimated
+			if (!isCpu(row.gpu)) {
+				// the agent appends the index to identical models ("GeForce RTX 3090 1"); the device column already shows it
+				d.model = row.name?.replace(new RegExp(` ${row.gpu}$`), "") || d.model
+			}
+			d.energyWh += row.energy_wh
+			d.seconds += row.seconds
+			d.busySeconds += row.busy_seconds
+			d.maxW = Math.max(d.maxW, row.max_w)
+			d.estimated ||= row.estimated
 		}
 		const servers = new Map<string, ServerTotals>()
-		for (const g of gpuMap.values()) {
-			let s = servers.get(g.serverKey)
+		for (const d of deviceMap.values()) {
+			let s = servers.get(d.serverKey)
 			if (!s) {
-				s = { key: g.serverKey, name: g.server, gpus: [], energyWh: 0 }
-				servers.set(g.serverKey, s)
+				s = { key: d.serverKey, name: d.server, devices: [], energyWh: 0 }
+				servers.set(d.serverKey, s)
 			}
-			s.gpus.push(g)
-			s.energyWh += g.energyWh
+			s.devices.push(d)
+			s.energyWh += d.energyWh
 		}
 		const serverList = [...servers.values()].sort((a, b) => compareNames(a.name, b.name))
 		for (const s of serverList) {
-			s.gpus.sort((a, b) => compareNames(a.gpu, b.gpu))
+			s.devices.sort((a, b) => Number(isCpu(a.device)) - Number(isCpu(b.device)) || compareNames(a.device, b.device))
 		}
 
 		// chart series, in the same order as the table
+		const seriesKey = (row: GpuPowerDailyRecord) => {
+			if (group === "kind") return isCpu(row.gpu) ? "cpu" : "gpu"
+			return group === "system" ? serverKey(row) : `${serverKey(row)}/${row.gpu}`
+		}
+		const hasCpu = rows.some((r) => isCpu(r.gpu))
 		const series =
-			group === "system"
-				? serverList.map((s) => ({ key: s.key, label: s.name }))
-				: serverList.flatMap((s) => s.gpus.map((g) => ({ key: g.key, label: `${s.name} · GPU ${g.gpu}` })))
+			group === "kind"
+				? [{ key: "gpu", label: "GPU" }, ...(hasCpu ? [{ key: "cpu", label: "CPU" }] : [])]
+				: group === "system"
+					? serverList.map((s) => ({ key: s.key, label: s.name }))
+					: serverList.flatMap((s) =>
+							s.devices.map((d) => ({ key: d.key, label: `${s.name} · ${deviceLabel(d.device)}` }))
+						)
 		const colored = series.map((s, i) => ({ ...s, color: seriesColor(i) }))
 
 		const byDay = new Map<string, ChartRow>(days.map((day) => [day, { day, values: {}, total: 0, estimated: false }]))
+		let gpuWh = 0
+		let cpuWh = 0
+		let cpuStart = ""
 		for (const row of rows) {
+			if (isCpu(row.gpu)) {
+				cpuWh += row.energy_wh
+				if (!cpuStart || row.day < cpuStart) cpuStart = row.day
+			} else {
+				gpuWh += row.energy_wh
+			}
 			const point = byDay.get(row.day)
 			if (!point) continue
-			const sKey = serverKey(row)
-			const key = group === "system" ? sKey : `${sKey}/${row.gpu}`
+			const key = seriesKey(row)
 			point.values[key] = (point.values[key] ?? 0) + row.energy_wh / 1000
 			point.total += row.energy_wh
 			point.estimated ||= row.estimated
 		}
 		const chart = [...byDay.values()]
-		const totalWh = serverList.reduce((sum, s) => sum + s.energyWh, 0)
+		const totalWh = gpuWh + cpuWh
 		const daysWithData = chart.filter((p) => p.total > 0)
 		const peak = daysWithData.reduce<ChartRow | null>((best, p) => (!best || p.total > best.total ? p : best), null)
 		return {
@@ -223,6 +268,11 @@ export default memo(() => {
 			series: colored,
 			chart,
 			totalWh,
+			gpuWh,
+			cpuWh,
+			hasCpu,
+			// the CPU started being recorded after the beginning of the shown range
+			cpuStart: hasCpu && (!from || cpuStart > from) && cpuStart > (rows[0]?.day ?? "") ? cpuStart : "",
 			dailyAvgWh: daysWithData.length ? totalWh / daysWithData.length : 0,
 			peak,
 			hasEstimated: rows.some((r) => r.estimated),
@@ -247,10 +297,13 @@ export default memo(() => {
 							<div className="px-2 sm:px-1">
 								<CardTitle className="mb-2 flex items-center gap-2">
 									<ZapIcon className="size-4" />
-									<Trans>GPU Power History</Trans>
+									<Trans>Power History</Trans>
 								</CardTitle>
 								<div className="text-sm text-muted-foreground">
-									<Trans>Daily energy use of every GPU, kept permanently. Days follow the hub's time zone.</Trans>
+									<Trans>
+										Daily energy use of every GPU and CPU package, kept permanently. Days follow the hub's time
+										zone.
+									</Trans>
 								</div>
 							</div>
 							<div className="md:ms-auto flex items-center gap-2">
@@ -260,7 +313,8 @@ export default memo(() => {
 									</SelectTrigger>
 									<SelectContent>
 										<SelectItem value="system">{t`By server`}</SelectItem>
-										<SelectItem value="gpu">{t`By GPU`}</SelectItem>
+										<SelectItem value="gpu">{t`By device`}</SelectItem>
+										<SelectItem value="kind">{t`CPU vs GPU`}</SelectItem>
 									</SelectContent>
 								</Select>
 								<Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
@@ -285,12 +339,16 @@ export default memo(() => {
 							</div>
 						) : data.servers.length === 0 ? (
 							<div className="py-16 text-center text-sm text-muted-foreground">
-								<Trans>No GPU power data yet.</Trans>
+								<Trans>No power data yet.</Trans>
 							</div>
 						) : (
 							<>
 								<div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-									<StatTile label={t`Total energy`} value={`${formatKwh(data.totalWh)} kWh`} />
+									<StatTile
+										label={t`Total energy`}
+										value={`${formatKwh(data.totalWh)} kWh`}
+										note={data.hasCpu ? `GPU ${formatKwh(data.gpuWh)} · CPU ${formatKwh(data.cpuWh)} kWh` : undefined}
+									/>
 									<StatTile label={t`Daily average`} value={`${formatKwh(data.dailyAvgWh)} kWh`} />
 									<StatTile
 										label={t`Highest day`}
@@ -345,7 +403,7 @@ export default memo(() => {
 										<TableHeader>
 											<TableRow>
 												<TableHead>
-													<Trans>Server</Trans> / GPU
+													<Trans>Server</Trans> / <Trans>Device</Trans>
 												</TableHead>
 												<TableHead>
 													<Trans>Model</Trans>
@@ -369,7 +427,7 @@ export default memo(() => {
 										</TableHeader>
 										<TableBody>
 											{data.servers.map((s) => (
-												<ServerRows key={s.key} server={s} removedLabel={t`Removed`} />
+												<ServerRows key={s.key} server={s} removedLabel={t`Removed`} cpuModel={t`CPU package`} />
 											))}
 										</TableBody>
 									</Table>
@@ -378,8 +436,19 @@ export default memo(() => {
 								<div className="grid gap-1 px-1 text-xs text-muted-foreground">
 									<p>
 										<Trans>
-											Coverage is the share of the time the GPU was reporting. Lower values mean the server or agent
-											was offline for part of the period.
+											An estimate of machine use: CPU package and GPUs only. The motherboard, memory, disks, fans
+											and power supply losses are not included, so the use at the outlet is higher.
+										</Trans>
+									</p>
+									{data.cpuStart && (
+										<p>
+											<Trans>CPU power is recorded from {data.cpuStart}.</Trans>
+										</p>
+									)}
+									<p>
+										<Trans>
+											Coverage is the share of the time the device was reporting. Lower values mean the server or
+											agent was offline for part of the period.
 										</Trans>
 									</p>
 									{data.hasEstimated && (
@@ -411,48 +480,60 @@ function StatTile({ label, value, note }: { label: string; value: string; note?:
 	)
 }
 
-function ServerRows({ server, removedLabel }: { server: ServerTotals; removedLabel: string }) {
-	// server average power = sum of its GPUs' average power
-	const avgW = server.gpus.reduce((sum, g) => sum + (g.seconds ? (g.energyWh * 3600) / g.seconds : 0), 0)
-	const coverage = server.gpus.reduce((sum, g) => sum + (g.possibleSeconds ? g.seconds / g.possibleSeconds : 0), 0)
+function ServerRows({
+	server,
+	removedLabel,
+	cpuModel,
+}: {
+	server: ServerTotals
+	removedLabel: string
+	cpuModel: string
+}) {
+	// server average power = sum of its devices' average power
+	const avgW = server.devices.reduce((sum, d) => sum + (d.seconds ? (d.energyWh * 3600) / d.seconds : 0), 0)
+	const coverage = server.devices.reduce((sum, d) => sum + (d.possibleSeconds ? d.seconds / d.possibleSeconds : 0), 0)
+	const gpuCount = server.devices.filter((d) => !isCpu(d.device)).length
+	const hasCpu = server.devices.some((d) => isCpu(d.device))
 	return (
 		<>
 			<TableRow className="bg-muted/40 font-medium">
 				<TableCell>
 					{server.name}
-					{server.gpus[0]?.removed && (
+					{server.devices[0]?.removed && (
 						<span className="ms-2 text-xs font-normal text-muted-foreground">({removedLabel})</span>
 					)}
 				</TableCell>
-				<TableCell className="text-muted-foreground font-normal">{server.gpus.length} GPU</TableCell>
+				<TableCell className="text-muted-foreground font-normal">
+					{gpuCount} GPU{hasCpu && " + CPU"}
+				</TableCell>
 				<TableCell className="text-end tabular-nums">{formatKwh(server.energyWh)} kWh</TableCell>
 				<TableCell className="text-end tabular-nums">{formatWatts(avgW)}</TableCell>
 				<TableCell className="text-end text-muted-foreground">—</TableCell>
 				<TableCell className="text-end text-muted-foreground">—</TableCell>
-				<TableCell className="text-end tabular-nums">{formatPercent(coverage / server.gpus.length)}</TableCell>
+				<TableCell className="text-end tabular-nums">{formatPercent(coverage / server.devices.length)}</TableCell>
 			</TableRow>
-			{server.gpus.map((g) => (
-				<TableRow key={g.key}>
+			{server.devices.map((d) => (
+				<TableRow key={d.key}>
 					<TableCell className="ps-6">
-						GPU {g.gpu}
-						{g.estimated && <span className="text-muted-foreground">*</span>}
+						{deviceLabel(d.device)}
+						{d.estimated && <span className="text-muted-foreground">*</span>}
 					</TableCell>
-					<TableCell className="text-muted-foreground">{g.model}</TableCell>
-					<TableCell className="text-end tabular-nums">{formatKwh(g.energyWh)} kWh</TableCell>
+					<TableCell className="text-muted-foreground">{isCpu(d.device) ? cpuModel : d.model}</TableCell>
+					<TableCell className="text-end tabular-nums">{formatKwh(d.energyWh)} kWh</TableCell>
 					<TableCell className="text-end tabular-nums">
-						{g.seconds ? formatWatts((g.energyWh * 3600) / g.seconds) : "—"}
+						{d.seconds ? formatWatts((d.energyWh * 3600) / d.seconds) : "—"}
 					</TableCell>
-					<TableCell className="text-end tabular-nums">{formatWatts(g.maxW)}</TableCell>
+					<TableCell className="text-end tabular-nums">{formatWatts(d.maxW)}</TableCell>
 					<TableCell className="text-end tabular-nums">
-						{g.seconds ? formatPercent(g.busySeconds / g.seconds) : "—"}
+						{d.seconds ? formatPercent(d.busySeconds / d.seconds) : "—"}
 					</TableCell>
 					<TableCell
 						className={cn(
 							"text-end tabular-nums",
-							g.possibleSeconds && g.seconds / g.possibleSeconds < 0.9 && "text-yellow-600 dark:text-yellow-400"
+							d.possibleSeconds && d.seconds / d.possibleSeconds < 0.9 && "text-yellow-600 dark:text-yellow-400"
 						)}
 					>
-						{g.possibleSeconds ? formatPercent(g.seconds / g.possibleSeconds) : "—"}
+						{d.possibleSeconds ? formatPercent(d.seconds / d.possibleSeconds) : "—"}
 					</TableCell>
 				</TableRow>
 			))}
