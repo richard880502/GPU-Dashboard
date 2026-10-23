@@ -178,13 +178,11 @@ const METER_COLORS = {
 	[MeterState.Crit]: "bg-[hsl(4,82%,55%)] dark:bg-[hsl(4,85%,58%)]",
 } as const
 
-function Meter({ value, label }: { value: number; label?: string }) {
+function Meter({ value }: { value: number }) {
 	const state = getMeterState(value)
 	return (
 		<div className="flex gap-2 items-center tabular-nums tracking-tight w-full min-w-0">
-			<span className={cn("shrink-0", label ? "min-w-[5.5rem]" : "min-w-10")}>
-				{label ?? `${decimalString(value, value >= 10 ? 1 : 2)}%`}
-			</span>
+			<span className="min-w-10 shrink-0">{decimalString(value, value >= 10 ? 1 : 2)}%</span>
 			<span className="flex-1 min-w-8 grid bg-muted h-[1em] rounded-sm overflow-hidden">
 				<span className={cn("h-full", METER_COLORS[state])} style={{ width: `${Math.min(value, 100)}%` }}></span>
 			</span>
@@ -192,7 +190,7 @@ function Meter({ value, label }: { value: number; label?: string }) {
 	)
 }
 
-/** GPU memory is reported in MB: 23988 -> "24", 19866 -> "19.9", 121690 -> "121.7" */
+/** GPU memory is reported in MB: 23988 -> "24", 22144 -> "22.1", 30881 -> "30.9" */
 function toGB(mb: number) {
 	return (mb / 1000).toFixed(1).replace(/\.0$/, "")
 }
@@ -452,7 +450,7 @@ export function GpuStatusTable() {
 							<th className="font-normal py-2 px-2 w-[22%]">Server</th>
 							<th className="font-normal py-2 px-2 w-[9%]">GPU</th>
 							<th className="font-normal py-2 px-2 w-[18%]">Util %</th>
-							<th className="font-normal py-2 px-2 w-[21%]">VRAM</th>
+							<th className="font-normal py-2 px-2 w-[21%]">VRAM %</th>
 							<th className="font-normal py-2 px-2 w-[10%]">{t`Free VRAM`}</th>
 							<th className="font-normal py-2 px-2 w-[8%]">Temp C</th>
 							<th className="font-normal py-2 px-2 w-[8%]">Power W</th>
@@ -565,10 +563,7 @@ export function GpuStatusTable() {
 														<Meter value={row.util} />
 													</td>
 													<td className="py-2 px-2 min-w-32">
-														<Meter
-															value={row.vramPct}
-															label={row.memTotal ? `${toGB(row.memUsed)} / ${toGB(row.memTotal)} GB` : undefined}
-														/>
+														<Meter value={row.vramPct} />
 													</td>
 													<td
 														className={cn(
