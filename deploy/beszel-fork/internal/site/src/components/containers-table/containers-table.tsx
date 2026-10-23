@@ -376,29 +376,33 @@ function LogSearchBar({
 	onNavigate: (dir: 1 | -1) => void
 }) {
 	return (
-		<div className="relative flex-1 max-w-64 flex items-center gap-1 min-w-0">
-			<Input
-				value={search}
-				onChange={(e) => setSearch(e.target.value)}
-				onKeyDown={(e) => {
-					if (e.key === "Enter") {
-						e.preventDefault()
-						onNavigate(e.shiftKey ? -1 : 1)
-					}
-				}}
-				placeholder={t`Search logs...`}
-				className="h-8 pe-7"
-			/>
-			{search && (
-				<button
-					type="button"
-					onClick={() => setSearch("")}
-					className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100"
-					aria-label={t`Clear search`}
-				>
-					<XIcon className="size-3.5" />
-				</button>
-			)}
+		<div className="flex-1 max-w-72 flex items-center gap-1 min-w-0">
+			{/* the clear button is positioned against the input, not the whole bar,
+			    so it doesn't sit on top of the match counter */}
+			<div className="relative flex-1 min-w-0">
+				<Input
+					value={search}
+					onChange={(e) => setSearch(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === "Enter") {
+							e.preventDefault()
+							onNavigate(e.shiftKey ? -1 : 1)
+						}
+					}}
+					placeholder={t`Search logs...`}
+					className="h-8 pe-7"
+				/>
+				{search && (
+					<button
+						type="button"
+						onClick={() => setSearch("")}
+						className="absolute end-1.5 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100"
+						aria-label={t`Clear search`}
+					>
+						<XIcon className="size-3.5" />
+					</button>
+				)}
+			</div>
 			{search.trim() && (
 				<div className="flex items-center gap-0.5 text-xs text-muted-foreground tabular-nums shrink-0">
 					<button
