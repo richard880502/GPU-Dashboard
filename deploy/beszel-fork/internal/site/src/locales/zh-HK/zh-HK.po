@@ -2758,3 +2758,34 @@ msgstr "今天，進行中"
 #. gpu-monitoring fork
 msgid "Total energy"
 msgstr "總用電量"
+
+#. gpu-monitoring fork
+msgid "Available GPUs"
+msgstr "可用 GPU"
+
+
+#. gpu-monitoring fork
+msgid "Idle, memory held"
+msgstr "佔用但閒置"
+
+#. gpu-monitoring fork
+msgid "In use"
+msgstr "使用中"
+
+
+#. gpu-monitoring fork
+msgid "Not in use"
+msgstr "空閒"
+
+
+#. gpu-monitoring fork
+msgid "Offline"
+msgstr "離線"
+
+#. gpu-monitoring fork
+msgid "Free VRAM"
+msgstr "可用 VRAM"
+
+#. gpu-monitoring fork
+msgid "Most free VRAM on a single GPU"
+msgstr "單張 GPU 最多可用的 VRAM"

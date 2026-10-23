@@ -5,19 +5,37 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { useStore } from "@nanostores/react"
 import { getPagePath } from "@nanostores/router"
 import { t } from "@lingui/core/macro"
+import { Trans } from "@lingui/react/macro"
 import { pb } from "@/lib/api"
 import { $allSystemsById } from "@/lib/stores"
 import { MeterState, SystemStatus } from "@/lib/enums"
 import type { ContainerRecord, GPUProcess } from "@/types"
 import { cn, decimalString, getServerDotColor, useBrowserStorage } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
-import { ChevronRightIcon, ChevronsDownUpIcon, ChevronsUpDownIcon, HashIcon } from "lucide-react"
+import {
+	ActivityIcon,
+	ChevronRightIcon,
+	ChevronsDownUpIcon,
+	ChevronsUpDownIcon,
+	CircleCheckIcon,
+	CirclePauseIcon,
+	HashIcon,
+	type LucideIcon,
+	UnplugIcon,
+} from "lucide-react"
 import { GpuIcon } from "./ui/icons"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet"
 import { $router, Link } from "./router"
 import { ContainerSheet } from "./containers-table/containers-table"
 import { toast } from "./ui/use-toast"
 import { Button } from "./ui/button"
+import {
+	BUSY_UTIL_PCT,
+	classifyGpu,
+	type GpuAvailability,
+	type GpuSample,
+	parsePbDate,
+} from "@/lib/gpu-availability"
 
 // Renders a process's container attribution readably instead of the raw
 // "host:<process>" / "k8s:<namespace>/<pod>/<container>" wire format. Real
@@ -87,7 +105,23 @@ interface GpuRow {
 	temp?: number
 	power?: number
 	procs: GPUProcess[]
+	/** epoch ms of this GPU's newest sample */
+	at: number
+	/** epoch ms it last ran (>= BUSY_UTIL_PCT), 0 if not in the fetched history */
+	busyAt: number
+	/** filled in by groupRows, which knows the system's status */
+	availability: GpuAvailability
 }
+
+const rowKey = (row: { systemId: string; index: string }) => `${row.systemId}-${row.index}`
+
+const sampleOf = (row: GpuRow): GpuSample => ({
+	at: row.at,
+	util: row.util,
+	memUsed: row.memUsed,
+	memTotal: row.memTotal,
+	procs: row.procs.length,
+})
 
 // One collapsible group per server: its GPUs plus the roll-up shown on the
 // (always visible) header row, so a busy server is findable without expanding.
@@ -95,16 +129,18 @@ interface GpuGroup {
 	systemId: string
 	name: string
 	gpus: GpuRow[]
-	occupied: number
 	avgUtil: number
 	vramPct: number
 	maxTemp?: number
 	totalPower?: number
 }
 
-function groupRows(rows: GpuRow[], systems: Record<string, { name: string }>): GpuGroup[] {
+function groupRows(rows: GpuRow[], systems: Record<string, { name: string; status?: string }>): GpuGroup[] {
 	const bySystem = new Map<string, GpuRow[]>()
+	const now = Date.now()
 	for (const row of rows) {
+		const systemUp = systems[row.systemId]?.status === SystemStatus.Up
+		row.availability = classifyGpu(sampleOf(row), { systemUp, busyAt: row.busyAt, now })
 		bySystem.set(row.systemId, [...(bySystem.get(row.systemId) ?? []), row])
 	}
 	const groups: GpuGroup[] = []
@@ -117,7 +153,6 @@ function groupRows(rows: GpuRow[], systems: Record<string, { name: string }>): G
 			systemId,
 			name: systems[systemId]?.name ?? systemId,
 			gpus,
-			occupied: gpus.filter((g) => g.procs.length > 0).length,
 			avgUtil: gpus.reduce((sum, g) => sum + g.util, 0) / gpus.length,
 			vramPct: memTotal ? (gpus.reduce((sum, g) => sum + g.memUsed, 0) / memTotal) * 100 : 0,
 			maxTemp: temps.length ? Math.max(...temps) : undefined,
@@ -155,7 +190,44 @@ function Meter({ value }: { value: number }) {
 	)
 }
 
+/** GPU memory is reported in MB: 23988 -> "24", 22144 -> "22.1", 30881 -> "30.9" */
+function toGB(mb: number) {
+	return (mb / 1000).toFixed(1).replace(/\.0$/, "")
+}
+
+const freeMem = (row: GpuRow) => Math.max(0, row.memTotal - row.memUsed)
+
+// One icon + color per state (lib/gpu-availability.ts), used for the GPU
+// icons on each server row and the status icon in front of each GPU.
+const AVAILABILITY: Record<GpuAvailability, { Icon: LucideIcon; color: string }> = {
+	free: { Icon: CircleCheckIcon, color: "text-emerald-500" },
+	busy: { Icon: ActivityIcon, color: "text-red-500" },
+	held: { Icon: CirclePauseIcon, color: "text-amber-500" },
+	offline: { Icon: UnplugIcon, color: "text-muted-foreground" },
+}
+const AVAILABILITY_ORDER: GpuAvailability[] = ["free", "busy", "held", "offline"]
+
+function availabilityLabel(availability: GpuAvailability) {
+	switch (availability) {
+		case "free":
+			return t`Not in use`
+		case "busy":
+			return t`In use`
+		case "held":
+			return t`Idle, memory held`
+		default:
+			return t`Offline`
+	}
+}
+
+function StatusIcon({ availability, className }: { availability: GpuAvailability; className?: string }) {
+	const { Icon, color } = AVAILABILITY[availability]
+	return <Icon className={cn("size-4 shrink-0", color, className)} aria-label={availabilityLabel(availability)} />
+}
+
 async function fetchGpuRows(): Promise<GpuRow[]> {
+	// Newest first. At a 5s poll interval this also covers each system's last
+	// couple of minutes, which is what tells "idle for now" from "between steps".
 	const records = await pb.collection("system_stats").getList(1, 200, {
 		filter: pb.filter("type = {:t}", { t: "1m" }),
 		sort: "-created",
@@ -163,15 +235,25 @@ async function fetchGpuRows(): Promise<GpuRow[]> {
 		requestKey: "gpu-status-table",
 	})
 
-	const latestBySystem = new Map<string, { g?: Record<string, GpuEntry> }>()
-	for (const rec of records.items as unknown as { system: string; stats: { g?: Record<string, GpuEntry> } }[]) {
+	type StatsRecord = { system: string; created: string; stats: { g?: Record<string, GpuEntry> } }
+	const latestBySystem = new Map<string, StatsRecord>()
+	const busyAtByGpu = new Map<string, number>()
+	for (const rec of records.items as unknown as StatsRecord[]) {
 		if (!latestBySystem.has(rec.system)) {
-			latestBySystem.set(rec.system, rec.stats)
+			latestBySystem.set(rec.system, rec)
+		}
+		const at = parsePbDate(rec.created)
+		for (const [index, gpu] of Object.entries(rec.stats.g ?? {})) {
+			if ((gpu.u ?? 0) >= BUSY_UTIL_PCT) {
+				const key = rowKey({ systemId: rec.system, index })
+				busyAtByGpu.set(key, Math.max(busyAtByGpu.get(key) ?? 0, at))
+			}
 		}
 	}
 
 	const rows: GpuRow[] = []
-	for (const [systemId, stats] of latestBySystem) {
+	for (const [systemId, { stats, created }] of latestBySystem) {
+		const at = parsePbDate(created)
 		for (const [index, gpu] of Object.entries(stats.g ?? {})) {
 			rows.push({
 				systemId,
@@ -184,6 +266,9 @@ async function fetchGpuRows(): Promise<GpuRow[]> {
 				temp: gpu.t,
 				power: gpu.p,
 				procs: gpu.procs ?? [],
+				at,
+				busyAt: busyAtByGpu.get(rowKey({ systemId, index })) ?? 0,
+				availability: "free",
 			})
 		}
 	}
@@ -259,6 +344,9 @@ export function GpuStatusTable() {
 	const [sheetOpen, setSheetOpen] = useState(false)
 	const activeContainer = useRef<ContainerRecord | null>(null)
 	const [containerSheetOpen, setContainerSheetOpen] = useState(false)
+	// when each GPU last ran, kept across refreshes so a GPU doesn't turn
+	// "free" just because its busy samples scrolled out of the fetched page
+	const busyAtRef = useRef(new Map<string, number>())
 
 	// Resolves a container name (all the GPU process row has) to its actual
 	// container record (id, image, status, ...), which the shared
@@ -291,9 +379,13 @@ export function GpuStatusTable() {
 		let cancelled = false
 		function load() {
 			fetchGpuRows().then((r) => {
-				if (!cancelled) {
-					setRows(r)
+				if (cancelled) return
+				for (const row of r) {
+					const key = rowKey(row)
+					row.busyAt = Math.max(row.busyAt, busyAtRef.current.get(key) ?? 0)
+					busyAtRef.current.set(key, row.busyAt)
 				}
+				setRows(r)
 			})
 		}
 		load()
@@ -313,6 +405,7 @@ export function GpuStatusTable() {
 		return null
 	}
 
+	const freeCount = rows.filter((r) => r.availability === "free").length
 	const allExpanded = groups.every((g) => !collapsed[g.systemId])
 	const setAll = (expand: boolean) => setCollapsed(Object.fromEntries(groups.map((g) => [g.systemId, !expand])))
 
@@ -320,10 +413,30 @@ export function GpuStatusTable() {
 		<Card>
 			<CardHeader className="pb-4 px-2 sm:px-6 max-sm:pt-5 max-sm:pb-1">
 				<div className="px-2 sm:px-1 flex items-center justify-between gap-2">
-					<CardTitle className="flex items-center gap-2">
-						<GpuIcon className="size-4" />
-						GPU Status by Server
-					</CardTitle>
+					<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+						<CardTitle className="flex items-center gap-2">
+							<GpuIcon className="size-4" />
+							GPU Status by Server
+						</CardTitle>
+						<span
+							className={cn(
+								"inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-sm tabular-nums",
+								freeCount > 0 ? "border-emerald-500/50 bg-emerald-500/10" : "text-muted-foreground"
+							)}
+						>
+							<CircleCheckIcon className={cn("size-3.5", freeCount > 0 ? "text-emerald-500" : "")} />
+							<Trans>Available GPUs</Trans>
+							<span className="font-semibold">{freeCount}</span>/ {rows.length}
+						</span>
+						<span className="hidden md:inline-flex items-center gap-3 text-xs text-muted-foreground">
+							{AVAILABILITY_ORDER.map((a) => (
+								<span key={a} className="inline-flex items-center gap-1">
+									<StatusIcon availability={a} className="size-3.5" />
+									{availabilityLabel(a)}
+								</span>
+							))}
+						</span>
+					</div>
 					<Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setAll(!allExpanded)}>
 						{allExpanded ? <ChevronsDownUpIcon className="size-4" /> : <ChevronsUpDownIcon className="size-4" />}
 						{allExpanded ? "Collapse all" : "Expand all"}
@@ -334,13 +447,14 @@ export function GpuStatusTable() {
 				<table className="w-full min-w-[44rem] text-sm table-fixed">
 					<thead>
 						<tr className="text-left text-muted-foreground border-b">
-							<th className="font-normal py-2 px-2 w-[24%]">Server</th>
-							<th className="font-normal py-2 px-2 w-[8%]">GPU</th>
-							<th className="font-normal py-2 px-2 w-[22%]">Util %</th>
-							<th className="font-normal py-2 px-2 w-[22%]">VRAM %</th>
-							<th className="font-normal py-2 px-2 w-[9%]">Temp C</th>
-							<th className="font-normal py-2 px-2 w-[10%]">Power W</th>
-							<th className="font-normal py-2 px-2 w-[5%]"></th>
+							<th className="font-normal py-2 px-2 w-[22%]">Server</th>
+							<th className="font-normal py-2 px-2 w-[9%]">GPU</th>
+							<th className="font-normal py-2 px-2 w-[18%]">Util %</th>
+							<th className="font-normal py-2 px-2 w-[21%]">VRAM %</th>
+							<th className="font-normal py-2 px-2 w-[10%]">{t`Free VRAM`}</th>
+							<th className="font-normal py-2 px-2 w-[8%]">Temp C</th>
+							<th className="font-normal py-2 px-2 w-[8%]">Power W</th>
+							<th className="font-normal py-2 px-2 w-[4%]"></th>
 						</tr>
 					</thead>
 					<tbody>
@@ -388,14 +502,26 @@ export function GpuStatusTable() {
 												{offline && <span className="text-xs font-normal text-muted-foreground">({status})</span>}
 											</span>
 										</td>
-										<td className="py-2 px-2 tabular-nums" title="GPUs in use / total">
-											{group.occupied}/{group.gpus.length}
+										<td className="py-2 px-2">
+											<span className="inline-flex flex-wrap items-center gap-1">
+												{group.gpus.map((g) => (
+													<span key={g.index} title={`GPU ${g.index} · ${availabilityLabel(g.availability)}`}>
+														<GpuIcon className={cn("size-5", AVAILABILITY[g.availability].color)} />
+													</span>
+												))}
+											</span>
 										</td>
 										<td className="py-2 px-2 min-w-32">
 											<Meter value={group.avgUtil} />
 										</td>
 										<td className="py-2 px-2 min-w-32">
 											<Meter value={group.vramPct} />
+										</td>
+										<td className="py-2 px-2 tabular-nums" title={t`Most free VRAM on a single GPU`}>
+											{(() => {
+												const online = group.gpus.filter((g) => g.availability !== "offline" && g.memTotal)
+												return online.length ? `${toGB(Math.max(...online.map(freeMem)))} GB` : "-"
+											})()}
 										</td>
 										<td className="py-2 px-2 tabular-nums" title="Hottest GPU">
 											{group.maxTemp !== undefined ? `${group.maxTemp.toFixed(0)} °C` : "-"}
@@ -411,19 +537,41 @@ export function GpuStatusTable() {
 											return (
 												<tr
 													key={key}
-													className={cn("border-b last:border-0 hover:bg-muted/50 cursor-pointer", offline && "opacity-60")}
+													className={cn(
+														"border-b last:border-0 hover:bg-muted/50 cursor-pointer",
+														row.availability === "free" && "bg-emerald-500/[0.07] hover:bg-emerald-500/15",
+														offline && "opacity-60"
+													)}
 													onClick={() => {
 														setActiveRowKey(key)
 														setSheetOpen(true)
 													}}
 												>
-													<td className="py-2 ps-9 pe-2 text-muted-foreground truncate" title={row.name}>{row.name}</td>
+													<td className="py-2 ps-8 pe-2" title={`${row.name} · ${availabilityLabel(row.availability)}`}>
+														<span className="flex items-center gap-2 min-w-0">
+															<StatusIcon availability={row.availability} />
+															<span className="truncate text-muted-foreground">{row.name}</span>
+															{row.availability === "free" && (
+																<span className="shrink-0 rounded-full bg-emerald-500/15 px-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+																	{availabilityLabel("free")}
+																</span>
+															)}
+														</span>
+													</td>
 													<td className="py-2 px-2 tabular-nums">{row.index}</td>
 													<td className="py-2 px-2 min-w-32">
 														<Meter value={row.util} />
 													</td>
 													<td className="py-2 px-2 min-w-32">
 														<Meter value={row.vramPct} />
+													</td>
+													<td
+														className={cn(
+															"py-2 px-2 tabular-nums",
+															row.availability === "free" && "font-semibold text-emerald-600 dark:text-emerald-400"
+														)}
+													>
+														{row.memTotal && row.availability !== "offline" ? `${toGB(freeMem(row))} GB` : "-"}
 													</td>
 													<td className="py-2 px-2 tabular-nums">{row.temp !== undefined ? `${row.temp.toFixed(0)} °C` : "-"}</td>
 													<td className="py-2 px-2 tabular-nums">{row.power !== undefined ? `${row.power.toFixed(1)} W` : "-"}</td>
