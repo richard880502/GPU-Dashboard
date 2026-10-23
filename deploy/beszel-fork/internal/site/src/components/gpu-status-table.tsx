@@ -5,6 +5,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { useStore } from "@nanostores/react"
 import { getPagePath } from "@nanostores/router"
 import { t } from "@lingui/core/macro"
+import { Trans } from "@lingui/react/macro"
 import { pb } from "@/lib/api"
 import { $allSystemsById } from "@/lib/stores"
 import { MeterState, SystemStatus } from "@/lib/enums"
@@ -18,6 +19,13 @@ import { $router, Link } from "./router"
 import { ContainerSheet } from "./containers-table/containers-table"
 import { toast } from "./ui/use-toast"
 import { Button } from "./ui/button"
+import {
+	BUSY_UTIL_PCT,
+	classifyGpu,
+	type GpuAvailability,
+	type GpuSample,
+	parsePbDate,
+} from "@/lib/gpu-availability"
 
 // Renders a process's container attribution readably instead of the raw
 // "host:<process>" / "k8s:<namespace>/<pod>/<container>" wire format. Real
@@ -87,7 +95,23 @@ interface GpuRow {
 	temp?: number
 	power?: number
 	procs: GPUProcess[]
+	/** epoch ms of this GPU's newest sample */
+	at: number
+	/** epoch ms it last ran (>= BUSY_UTIL_PCT), 0 if not in the fetched history */
+	busyAt: number
+	/** filled in by groupRows, which knows the system's status */
+	availability: GpuAvailability
 }
+
+const rowKey = (row: { systemId: string; index: string }) => `${row.systemId}-${row.index}`
+
+const sampleOf = (row: GpuRow): GpuSample => ({
+	at: row.at,
+	util: row.util,
+	memUsed: row.memUsed,
+	memTotal: row.memTotal,
+	procs: row.procs.length,
+})
 
 // One collapsible group per server: its GPUs plus the roll-up shown on the
 // (always visible) header row, so a busy server is findable without expanding.
@@ -102,9 +126,12 @@ interface GpuGroup {
 	totalPower?: number
 }
 
-function groupRows(rows: GpuRow[], systems: Record<string, { name: string }>): GpuGroup[] {
+function groupRows(rows: GpuRow[], systems: Record<string, { name: string; status?: string }>): GpuGroup[] {
 	const bySystem = new Map<string, GpuRow[]>()
+	const now = Date.now()
 	for (const row of rows) {
+		const systemUp = systems[row.systemId]?.status === SystemStatus.Up
+		row.availability = classifyGpu(sampleOf(row), { systemUp, busyAt: row.busyAt, now })
 		bySystem.set(row.systemId, [...(bySystem.get(row.systemId) ?? []), row])
 	}
 	const groups: GpuGroup[] = []
@@ -117,7 +144,8 @@ function groupRows(rows: GpuRow[], systems: Record<string, { name: string }>): G
 			systemId,
 			name: systems[systemId]?.name ?? systemId,
 			gpus,
-			occupied: gpus.filter((g) => g.procs.length > 0).length,
+			// busy or held: not free for someone else to use
+			occupied: gpus.filter((g) => g.availability === "busy" || g.availability === "held").length,
 			avgUtil: gpus.reduce((sum, g) => sum + g.util, 0) / gpus.length,
 			vramPct: memTotal ? (gpus.reduce((sum, g) => sum + g.memUsed, 0) / memTotal) * 100 : 0,
 			maxTemp: temps.length ? Math.max(...temps) : undefined,
@@ -156,6 +184,8 @@ function Meter({ value }: { value: number }) {
 }
 
 async function fetchGpuRows(): Promise<GpuRow[]> {
+	// Newest first. At a 5s poll interval this also covers each system's last
+	// couple of minutes, which is what tells "idle for now" from "between steps".
 	const records = await pb.collection("system_stats").getList(1, 200, {
 		filter: pb.filter("type = {:t}", { t: "1m" }),
 		sort: "-created",
@@ -163,15 +193,25 @@ async function fetchGpuRows(): Promise<GpuRow[]> {
 		requestKey: "gpu-status-table",
 	})
 
-	const latestBySystem = new Map<string, { g?: Record<string, GpuEntry> }>()
-	for (const rec of records.items as unknown as { system: string; stats: { g?: Record<string, GpuEntry> } }[]) {
+	type StatsRecord = { system: string; created: string; stats: { g?: Record<string, GpuEntry> } }
+	const latestBySystem = new Map<string, StatsRecord>()
+	const busyAtByGpu = new Map<string, number>()
+	for (const rec of records.items as unknown as StatsRecord[]) {
 		if (!latestBySystem.has(rec.system)) {
-			latestBySystem.set(rec.system, rec.stats)
+			latestBySystem.set(rec.system, rec)
+		}
+		const at = parsePbDate(rec.created)
+		for (const [index, gpu] of Object.entries(rec.stats.g ?? {})) {
+			if ((gpu.u ?? 0) >= BUSY_UTIL_PCT) {
+				const key = rowKey({ systemId: rec.system, index })
+				busyAtByGpu.set(key, Math.max(busyAtByGpu.get(key) ?? 0, at))
+			}
 		}
 	}
 
 	const rows: GpuRow[] = []
-	for (const [systemId, stats] of latestBySystem) {
+	for (const [systemId, { stats, created }] of latestBySystem) {
+		const at = parsePbDate(created)
 		for (const [index, gpu] of Object.entries(stats.g ?? {})) {
 			rows.push({
 				systemId,
@@ -184,6 +224,9 @@ async function fetchGpuRows(): Promise<GpuRow[]> {
 				temp: gpu.t,
 				power: gpu.p,
 				procs: gpu.procs ?? [],
+				at,
+				busyAt: busyAtByGpu.get(rowKey({ systemId, index })) ?? 0,
+				availability: "free",
 			})
 		}
 	}
@@ -249,6 +292,165 @@ function GpuProcessesSheet({
 	)
 }
 
+const AVAILABILITY_TILE: Record<GpuAvailability, string> = {
+	free: "border-emerald-500/60 bg-emerald-500/15 text-emerald-900 dark:text-emerald-100 hover:bg-emerald-500/25",
+	busy: "border-red-500/40 bg-red-500/10 text-red-900 dark:text-red-100 hover:bg-red-500/20",
+	held: "border-amber-500/60 bg-amber-500/15 text-amber-900 dark:text-amber-100 hover:bg-amber-500/25",
+	offline: "border-border bg-muted/40 text-muted-foreground hover:bg-muted/60",
+}
+
+const AVAILABILITY_DOT: Record<GpuAvailability, string> = {
+	free: "bg-emerald-500",
+	busy: "bg-red-500",
+	held: "bg-amber-500",
+	offline: "bg-muted-foreground/50",
+}
+
+function availabilityLabel(availability: GpuAvailability) {
+	switch (availability) {
+		case "free":
+			return t`Not in use`
+		case "busy":
+			return t`In use`
+		case "held":
+			return t`Idle, memory held`
+		default:
+			return t`Offline`
+	}
+}
+
+/** MiB -> "23.5" / "24" GB */
+const toGB = (mib: number) => decimalString(mib / 1024, mib >= 10 * 1024 ? 0 : 1)
+
+/** model name without the index the agent appends to identical models ("GeForce RTX 3090 1") */
+const modelName = (row: GpuRow) => row.name.replace(new RegExp(` ${row.index}$`), "")
+
+/** who is on the GPU: user of the process holding the most memory, else its container / process */
+function topOwner(row: GpuRow) {
+	const top = [...row.procs].sort((a, b) => (b.mu ?? 0) - (a.mu ?? 0))[0]
+	if (!top) return ""
+	if (top.un) return top.un
+	if (top.c.startsWith("host")) return top.c.replace(/^host:?/, "") || "host"
+	if (top.c.startsWith("k8s:")) return top.c.slice("k8s:".length).split("/")[1] ?? top.c
+	return top.c
+}
+
+function tileDetail(row: GpuRow) {
+	switch (row.availability) {
+		case "free": {
+			// free memory first: it's what people pick a GPU by, and the tile truncates
+			const free = toGB(row.memTotal - row.memUsed)
+			const model = modelName(row).replace(/^(NVIDIA |GeForce )+/, "")
+			return row.memTotal ? `${t`${free} GB free`} · ${model}` : model
+		}
+		case "busy":
+			return [`${decimalString(row.util, 0)}%`, topOwner(row)].filter(Boolean).join(" · ")
+		case "held":
+			return [topOwner(row), row.memUsed ? `${toGB(row.memUsed)} GB` : ""].filter(Boolean).join(" · ")
+		default:
+			return modelName(row)
+	}
+}
+
+// At-a-glance view above the detailed table: how many GPUs are free (and of
+// which model), then one colored tile per GPU, one line per server.
+function GpuAvailabilityOverview({
+	groups,
+	systems,
+	onOpen,
+}: {
+	groups: GpuGroup[]
+	systems: Record<string, { name: string }>
+	onOpen: (row: GpuRow) => void
+}) {
+	const all = groups.flatMap((g) => g.gpus)
+	const free = all.filter((g) => g.availability === "free")
+	const freeByModel = new Map<string, { count: number; memTotal: number }>()
+	for (const row of free) {
+		const model = modelName(row)
+		const entry = freeByModel.get(model) ?? { count: 0, memTotal: row.memTotal }
+		entry.count++
+		freeByModel.set(model, entry)
+	}
+	const serverNames = Object.values(systems).map((s) => s.name)
+
+	return (
+		<div className="mb-5 grid gap-3 min-w-[44rem]">
+			<div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5 px-1">
+				<span className="text-sm text-muted-foreground">
+					<Trans>Available GPUs</Trans>
+				</span>
+				<span className="text-2xl font-semibold tabular-nums">
+					{free.length}
+					<span className="text-base font-normal text-muted-foreground"> / {all.length}</span>
+				</span>
+				{free.length === 0 ? (
+					<span className="text-sm text-muted-foreground">
+						<Trans>No GPU is free right now.</Trans>
+					</span>
+				) : (
+					[...freeByModel].map(([model, { count, memTotal }]) => (
+						<span
+							key={model}
+							className="text-sm rounded-full border border-emerald-500/50 bg-emerald-500/10 px-2.5 py-0.5 tabular-nums"
+						>
+							{model} ×{count}
+							{memTotal ? ` · ${toGB(memTotal)} GB` : ""}
+						</span>
+					))
+				)}
+			</div>
+			<div className="grid gap-1.5">
+				{groups.map((group) => (
+					<div key={group.systemId} className="flex items-start gap-3">
+						<div className="w-32 shrink-0 pt-2 text-sm font-medium flex items-center gap-1.5 min-w-0">
+							<span
+								className={cn("inline-block size-1.5 rounded-full shrink-0", getServerDotColor(group.name, serverNames))}
+							/>
+							<span className="truncate" title={group.name}>
+								{group.name}
+							</span>
+						</div>
+						<div className="flex flex-wrap gap-1.5">
+							{group.gpus.map((row) => (
+								<button
+									key={rowKey(row)}
+									type="button"
+									onClick={() => onOpen(row)}
+									title={`${row.name} · ${decimalString(row.util, 0)}% · ${toGB(row.memUsed)} / ${toGB(row.memTotal)} GB`}
+									className={cn(
+										"w-40 rounded-md border px-2.5 py-1 text-start text-xs transition-colors",
+										AVAILABILITY_TILE[row.availability]
+									)}
+								>
+									<div className="font-semibold truncate">
+										GPU {row.index} · {availabilityLabel(row.availability)}
+									</div>
+									<div className="opacity-80 tabular-nums truncate">{tileDetail(row)}</div>
+								</button>
+							))}
+						</div>
+					</div>
+				))}
+			</div>
+			<div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-muted-foreground">
+				{(["free", "busy", "held", "offline"] as const).map((a) => (
+					<span key={a} className="inline-flex items-center gap-1.5">
+						<span className={cn("size-2 rounded-full", AVAILABILITY_DOT[a])} />
+						{availabilityLabel(a)}
+					</span>
+				))}
+				<span>
+					<Trans>
+						Not in use: no processes, under 5% utilization for the last 2 minutes and almost no memory used. Idle,
+						memory held: memory is allocated but the GPU hasn't run for 2 minutes.
+					</Trans>
+				</span>
+			</div>
+		</div>
+	)
+}
+
 export function GpuStatusTable() {
 	const systems = useStore($allSystemsById)
 	const [rows, setRows] = useState<GpuRow[]>([])
@@ -259,6 +461,9 @@ export function GpuStatusTable() {
 	const [sheetOpen, setSheetOpen] = useState(false)
 	const activeContainer = useRef<ContainerRecord | null>(null)
 	const [containerSheetOpen, setContainerSheetOpen] = useState(false)
+	// when each GPU last ran, kept across refreshes so a GPU doesn't turn
+	// "free" just because its busy samples scrolled out of the fetched page
+	const busyAtRef = useRef(new Map<string, number>())
 
 	// Resolves a container name (all the GPU process row has) to its actual
 	// container record (id, image, status, ...), which the shared
@@ -291,9 +496,13 @@ export function GpuStatusTable() {
 		let cancelled = false
 		function load() {
 			fetchGpuRows().then((r) => {
-				if (!cancelled) {
-					setRows(r)
+				if (cancelled) return
+				for (const row of r) {
+					const key = rowKey(row)
+					row.busyAt = Math.max(row.busyAt, busyAtRef.current.get(key) ?? 0)
+					busyAtRef.current.set(key, row.busyAt)
 				}
+				setRows(r)
 			})
 		}
 		load()
@@ -331,6 +540,14 @@ export function GpuStatusTable() {
 				</div>
 			</CardHeader>
 			<CardContent className="max-sm:p-2 overflow-x-auto">
+				<GpuAvailabilityOverview
+					groups={groups}
+					systems={systems}
+					onOpen={(row) => {
+						setActiveRowKey(rowKey(row))
+						setSheetOpen(true)
+					}}
+				/>
 				<table className="w-full min-w-[44rem] text-sm table-fixed">
 					<thead>
 						<tr className="text-left text-muted-foreground border-b">
@@ -388,7 +605,7 @@ export function GpuStatusTable() {
 												{offline && <span className="text-xs font-normal text-muted-foreground">({status})</span>}
 											</span>
 										</td>
-										<td className="py-2 px-2 tabular-nums" title="GPUs in use / total">
+										<td className="py-2 px-2 tabular-nums" title={t`GPUs in use (running or holding memory) / total`}>
 											{group.occupied}/{group.gpus.length}
 										</td>
 										<td className="py-2 px-2 min-w-32">

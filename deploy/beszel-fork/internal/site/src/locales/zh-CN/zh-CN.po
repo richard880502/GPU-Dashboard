@@ -2758,3 +2758,39 @@ msgstr "今天，进行中"
 #. gpu-monitoring fork
 msgid "Total energy"
 msgstr "总用电量"
+
+#. gpu-monitoring fork
+msgid "Available GPUs"
+msgstr "可用 GPU"
+
+#. gpu-monitoring fork
+msgid "GPUs in use (running or holding memory) / total"
+msgstr "使用中的 GPU（正在运算或占用显存）／总数"
+
+#. gpu-monitoring fork
+msgid "Idle, memory held"
+msgstr "占用但闲置"
+
+#. gpu-monitoring fork
+msgid "In use"
+msgstr "使用中"
+
+#. gpu-monitoring fork
+msgid "No GPU is free right now."
+msgstr "目前没有空闲的 GPU。"
+
+#. gpu-monitoring fork
+msgid "Not in use"
+msgstr "空闲"
+
+#. gpu-monitoring fork
+msgid "Not in use: no processes, under 5% utilization for the last 2 minutes and almost no memory used. Idle, memory held: memory is allocated but the GPU hasn't run for 2 minutes."
+msgstr "空闲：没有进程、最近 2 分钟使用率都低于 5%，且几乎没有使用显存。占用但闲置：显存被占住，但最近 2 分钟没有在运算。"
+
+#. gpu-monitoring fork
+msgid "Offline"
+msgstr "离线"
+
+#. gpu-monitoring fork
+msgid "{free} GB free"
+msgstr "可用 {free} GB"

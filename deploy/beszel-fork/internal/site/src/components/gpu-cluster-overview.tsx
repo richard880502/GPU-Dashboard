@@ -6,6 +6,9 @@
 // so this reads the latest full system_stats record per system instead.
 import { useEffect, useState } from "react"
 import { pb } from "@/lib/api"
+import { SystemStatus } from "@/lib/enums"
+import { BUSY_UTIL_PCT, classifyGpu, parsePbDate } from "@/lib/gpu-availability"
+import { $allSystemsById } from "@/lib/stores"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { GpuIcon } from "./ui/icons"
 
@@ -33,33 +36,46 @@ async function fetchClusterGpuStats(): Promise<ClusterGpuStats> {
 		requestKey: "gpu-cluster-overview",
 	})
 
-	// keep only the latest record per system (list is sorted newest first)
-	const latestBySystem = new Map<string, { system: string; g?: Record<string, GpuEntry> }>()
-	for (const rec of statsRecords.items as unknown as { system: string; stats: { g?: Record<string, GpuEntry> } }[]) {
+	// keep only the latest record per system (list is sorted newest first),
+	// and when each GPU last ran within the fetched history
+	type StatsRecord = { system: string; created: string; stats: { g?: Record<string, GpuEntry> } }
+	const latestBySystem = new Map<string, { system: string; at: number; g?: Record<string, GpuEntry> }>()
+	const busyAt = new Map<string, number>()
+	for (const rec of statsRecords.items as unknown as StatsRecord[]) {
+		const at = parsePbDate(rec.created)
 		if (!latestBySystem.has(rec.system)) {
-			latestBySystem.set(rec.system, { system: rec.system, ...rec.stats })
+			latestBySystem.set(rec.system, { system: rec.system, at, ...rec.stats })
+		}
+		for (const [index, gpu] of Object.entries(rec.stats.g ?? {})) {
+			if ((gpu.u ?? 0) >= BUSY_UTIL_PCT) {
+				const key = `${rec.system}-${index}`
+				busyAt.set(key, Math.max(busyAt.get(key) ?? 0, at))
+			}
 		}
 	}
+	const systems = $allSystemsById.get()
 
 	let servers = 0
 	let totalGpus = 0
 	let occupiedGpus = 0
 	let utilSum = 0
 	let vramSum = 0
-	for (const { g } of latestBySystem.values()) {
+	for (const { system, at, g } of latestBySystem.values()) {
 		const entries = Object.entries(g ?? {})
 		if (entries.length === 0) {
 			continue
 		}
 		servers++
-		for (const [, gpu] of entries) {
+		for (const [index, gpu] of entries) {
 			totalGpus++
-			// "Occupied" means at least one real process is attributed to
-			// that GPU -- whether it's in a Docker/k8s container or running
-			// directly on the host -- not just "reports nonzero memory
-			// used" (idle GPUs still hold a small driver/reserved memory
-			// footprint, which made every GPU count as "occupied" before).
-			if (gpu.procs && gpu.procs.length > 0) {
+			// "Occupied" = running or holding memory (lib/gpu-availability.ts),
+			// the same rule as the GPU status card. Process attribution alone
+			// would count a 100%-busy GPU as free whenever it fails.
+			const availability = classifyGpu(
+				{ at, util: gpu.u ?? 0, memUsed: gpu.mu ?? 0, memTotal: gpu.mt ?? 0, procs: gpu.procs?.length ?? 0 },
+				{ systemUp: systems[system]?.status === SystemStatus.Up, busyAt: busyAt.get(`${system}-${index}`) ?? 0 }
+			)
+			if (availability === "busy" || availability === "held") {
 				occupiedGpus++
 			}
 			utilSum += gpu.u ?? 0
