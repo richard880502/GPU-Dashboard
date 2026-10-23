@@ -1,4 +1,3 @@
-import { t } from "@lingui/core/macro"
 import { Trans } from "@lingui/react/macro"
 import { getPagePath } from "@nanostores/router"
 import {
@@ -48,8 +47,6 @@ export default function Navbar() {
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
 
 	const AdminLinks = AdminDropdownGroup()
-
-	const systemTranslation = t`System`
 
 	return (
 		<div className="flex items-center h-14 md:h-16 bg-card px-4 pe-3 sm:px-6 border border-border/60 bt-0 rounded-md my-4">
@@ -148,7 +145,7 @@ export default function Navbar() {
 									}}
 								>
 									<PlusIcon className="h-4 w-4 me-2.5" />
-									<Trans>Add {{ foo: systemTranslation }}</Trans>
+									<Trans>Add System</Trans>
 								</DropdownMenuItem>
 							)}
 						</DropdownMenuGroup>
@@ -266,7 +263,7 @@ export default function Navbar() {
 				{!isReadOnlyUser() && (
 					<Button variant="outline" className="flex gap-1 ms-2" onClick={() => setAddSystemDialogOpen(true)}>
 						<PlusIcon className="h-4 w-4 -ms-1" />
-						<Trans>Add {{ foo: systemTranslation }}</Trans>
+						<Trans>Add System</Trans>
 					</Button>
 				)}
 			</div>
@@ -284,7 +281,7 @@ function AdminDropdownGroup() {
 	return (
 		<DropdownMenuGroup>
 			<DropdownMenuItem asChild>
-				<a href={prependBasePath("/_/")} target="_blank">
+				<a href={prependBasePath("/_/#/collections?collection=users")} target="_blank">
 					<UsersIcon className="me-2.5 h-4 w-4" />
 					<span>
 						<Trans>Users</Trans>

@@ -14,6 +14,7 @@ import (
 	"github.com/henrygd/beszel/agent/battery"
 	"github.com/henrygd/beszel/agent/btrfs"
 	"github.com/henrygd/beszel/agent/utils"
+	"github.com/henrygd/beszel/agent/wifi"
 	"github.com/henrygd/beszel/agent/zfs"
 	"github.com/henrygd/beszel/internal/entities/container"
 	"github.com/henrygd/beszel/internal/entities/system"
@@ -83,6 +84,7 @@ func (a *Agent) refreshSystemDetails() {
 	// cpu model
 	if info, err := cpu.Info(); err == nil && len(info) > 0 {
 		a.systemDetails.CpuModel = info[0].ModelName
+		a.systemDetails.Sockets = cpuSockets(info)
 	}
 	// gopsutil doesn't parse the "cpu model" field from /proc/cpuinfo, which
 	// is the only source of the CPU model name on MIPS. Fall back to reading
@@ -105,10 +107,15 @@ func (a *Agent) refreshSystemDetails() {
 
 	// total memory
 	a.systemDetails.MemoryTotal = hostInfo.MemTotal
-	if a.systemDetails.MemoryTotal == 0 {
-		if v, err := mem.VirtualMemory(); err == nil {
+	hostMemoryTotal := hostInfo.MemTotal
+	if v, err := memoryVirtualMemory(); err == nil {
+		hostMemoryTotal = v.Total
+		if a.systemDetails.MemoryTotal == 0 {
 			a.systemDetails.MemoryTotal = v.Total
 		}
+	}
+	if metrics, ok := containerMemoryMetrics(hostMemoryTotal, a.forceUseCgroup); ok {
+		a.systemDetails.MemoryTotal = metrics.Total
 	}
 
 	// zfs
@@ -119,9 +126,9 @@ func (a *Agent) refreshSystemDetails() {
 	}
 }
 
-// attachSystemDetails returns details only for fresh default-interval responses.
+// attachSystemDetails returns details only for fresh regular-interval responses.
 func (a *Agent) attachSystemDetails(data *system.CombinedData, cacheTimeMs uint16, includeRequested bool) *system.CombinedData {
-	if cacheTimeMs != defaultDataCacheTimeMs || (!includeRequested && !a.detailsDirty) {
+	if !isRegularInterval(cacheTimeMs) || (!includeRequested && !a.detailsDirty) {
 		return data
 	}
 
@@ -155,7 +162,7 @@ func (a *Agent) getSystemStats(cacheTimeMs uint16) system.Stats {
 	}
 
 	// cpu metrics
-	cpuMetrics, err := getCpuMetrics(cacheTimeMs)
+	cpuMetrics, err := getCpuMetrics(cacheTimeMs, a.forceUseCgroup)
 	if err == nil {
 		systemStats.Cpu = utils.TwoDecimals(cpuMetrics.Total)
 		systemStats.CpuBreakdown = []float64{
@@ -164,14 +171,21 @@ func (a *Agent) getSystemStats(cacheTimeMs uint16) system.Stats {
 			utils.TwoDecimals(cpuMetrics.Iowait),
 			utils.TwoDecimals(cpuMetrics.Steal),
 			utils.TwoDecimals(cpuMetrics.Idle),
+			utils.TwoDecimals(cpuMetrics.Irq),
+			utils.TwoDecimals(cpuMetrics.Softirq),
+			utils.TwoDecimals(cpuMetrics.Nice),
 		}
 	} else {
 		slog.Error("Error getting cpu metrics", "err", err)
 	}
 
-	// per-core cpu usage
-	if perCoreUsage, err := getPerCoreCpuUsage(cacheTimeMs); err == nil {
-		systemStats.CpuCoresUsage = perCoreUsage
+	// per-core cpu usage. Skipped when the total comes from cgroup accounting:
+	// per-core /proc/stat counters there describe shared host cores, not the
+	// guest, and would contradict the total.
+	if !cpuMetrics.fromCgroup {
+		if perCoreUsage, err := getPerCoreCpuUsage(cacheTimeMs); err == nil {
+			systemStats.CpuCoresUsage = perCoreUsage
+		}
 	}
 
 	// load average
@@ -185,34 +199,7 @@ func (a *Agent) getSystemStats(cacheTimeMs uint16) system.Stats {
 	}
 
 	// memory
-	if v, err := mem.VirtualMemory(); err == nil {
-		used, cacheBuff, swapUsed := calculateHostMemoryUsage(v, a.memCalc == "htop")
-		// swap
-		systemStats.Swap = utils.BytesToGigabytes(v.SwapTotal)
-		systemStats.SwapUsed = utils.BytesToGigabytes(swapUsed)
-		v.Used = used
-		// if a.memCalc == "legacy" {
-		// 	v.Used = v.Total - v.Free - v.Buffers - v.Cached
-		// 	cacheBuff = v.Total - v.Free - v.Used
-		// 	v.UsedPercent = float64(v.Used) / float64(v.Total) * 100.0
-		// }
-		// subtract ZFS ARC size from used memory and add as its own category
-		if a.zfs {
-			if arcSize, _ := zfs.ARCSize(); arcSize > 0 && arcSize < v.Used {
-				v.Used = v.Used - arcSize
-				systemStats.MemZfsArc = utils.BytesToGigabytes(arcSize)
-			}
-		}
-		if v.Total > 0 {
-			v.UsedPercent = float64(v.Used) / float64(v.Total) * 100.0
-		} else {
-			v.UsedPercent = 0
-		}
-		systemStats.Mem = utils.BytesToGigabytes(v.Total)
-		systemStats.MemBuffCache = utils.BytesToGigabytes(cacheBuff)
-		systemStats.MemUsed = utils.BytesToGigabytes(v.Used)
-		systemStats.MemPct = utils.TwoDecimals(v.UsedPercent)
-	}
+	a.updateMemoryStats(&systemStats)
 
 	// disk usage
 	a.updateDiskUsage(&systemStats)
@@ -275,8 +262,15 @@ func (a *Agent) getSystemStats(cacheTimeMs uint16) system.Stats {
 		}
 	}
 
+	// Wi-Fi collection spawns a process on macOS and dumps the BSS cache on
+	// Linux, so only refresh on the default interval. Real-time requests reuse
+	// the last snapshot.
+	if cacheTimeMs == defaultDataCacheTimeMs {
+		a.systemInfo.WiFi = wifi.Collect()
+	}
+	systemStats.WiFi = wifi.Signals(a.systemInfo.WiFi)
+
 	// update system info
-	a.systemInfo.ConnectionType = a.connectionManager.ConnectionType
 	a.systemInfo.Cpu = systemStats.Cpu
 	a.systemInfo.LoadAvg = systemStats.LoadAvg
 	a.systemInfo.MemPct = systemStats.MemPct
@@ -294,6 +288,25 @@ func (a *Agent) getSystemStats(cacheTimeMs uint16) system.Stats {
 // (e.g. "MIPS 1004Kc V2.15"), while "system type" provides SoC information
 // on various embedded architectures.
 var cpuModelFallbackKeys = []string{"cpu model", "system type"}
+
+// cpuSockets returns the number of physical CPU packages, or 0 if unknown.
+// PhysicalID is only a socket id on x86 Linux; on Windows gopsutil returns
+// one entry per package.
+func cpuSockets(info []cpu.InfoStat) int {
+	switch {
+	case runtime.GOOS == "windows":
+		return len(info)
+	case runtime.GOOS == "linux" && (runtime.GOARCH == "amd64" || runtime.GOARCH == "386"):
+		ids := make(map[string]struct{})
+		for _, c := range info {
+			if c.PhysicalID != "" {
+				ids[c.PhysicalID] = struct{}{}
+			}
+		}
+		return len(ids)
+	}
+	return 0
+}
 
 // getCpuModelFromCpuinfo reads /proc/cpuinfo and returns a CPU model string.
 // This is a fallback for architectures where gopsutil's cpu.Info() does not

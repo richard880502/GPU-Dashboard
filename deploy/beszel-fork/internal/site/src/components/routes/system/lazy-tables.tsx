@@ -36,13 +36,24 @@ export function LazyZfsTable({ systemId }: { systemId: string }) {
 	)
 }
 
-const SystemdTable = lazy(() => import("../../systemd-table/systemd-table"))
+export const SystemdTable = lazy(() => import("../../systemd-table/systemd-table"))
 
 export function LazySystemdTable({ systemId }: { systemId: string }) {
 	const { isIntersecting, ref } = useIntersectionObserver()
 	return (
 		<div ref={ref} className={cn(isIntersecting && "contents")}>
 			{isIntersecting && <SystemdTable systemId={systemId} />}
+		</div>
+	)
+}
+
+const PackageUpdatesTable = lazy(() => import("./package-updates-table"))
+
+export function LazyPackageUpdatesTable({ systemId, counts }: { systemId: string; counts: string }) {
+	const { isIntersecting, ref } = useIntersectionObserver({ rootMargin: "90px" })
+	return (
+		<div ref={ref} className={cn(isIntersecting && "contents")}>
+			{isIntersecting && <PackageUpdatesTable systemId={systemId} counts={counts} />}
 		</div>
 	)
 }

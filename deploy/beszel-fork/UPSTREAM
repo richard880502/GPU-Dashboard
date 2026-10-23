@@ -1,0 +1,17 @@
+# Upstream Beszel this fork is based on. Read by whoever merges the next
+# upstream release; keep it updated.
+#
+# repo:     https://github.com/henrygd/beszel
+# version:  v0.21.1
+# commit:   e2ed147a5aa6472e6462521632ccc7101668132c
+#
+# How to merge a newer release (3-way, with upstream history):
+#   1. git clone https://github.com/henrygd/beszel && cd beszel
+#   2. git checkout -b fork <commit above>
+#      replace the tree with this repo's deploy/beszel-fork and commit it
+#   3. git merge <new tag>, resolve, build and test, commit
+#   4. copy the merged tree back into deploy/beszel-fork and update this file
+#
+# Fork-only CBOR keys start at 100 (upstream took 40 for WiFi in v0.21).
+# Before merging, compare the cbor keys of internal/entities/* structs on both
+# sides for collisions.

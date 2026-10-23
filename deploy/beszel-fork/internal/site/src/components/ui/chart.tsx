@@ -1,7 +1,7 @@
 import { useLingui } from "@lingui/react/macro"
 import * as React from "react"
 import * as RechartsPrimitive from "recharts"
-import { chartTimeData, cn } from "@/lib/utils"
+import { chartTimeData, cn, formatNumber } from "@/lib/utils"
 import type { ChartTimes } from "@/types"
 import { Separator } from "./separator"
 import type { AxisDomain } from "recharts/types/util/types"
@@ -200,7 +200,7 @@ const ChartTooltipContent = React.forwardRef<
 				return content(totalItem, totalKey)
 			}
 
-			return `${totalValue.toLocaleString()}${unit ?? ""}`
+			return `${formatNumber(totalValue)}${unit ?? ""}`
 		}, [color, content, formatter, nameKey, payload, showTotal, totalName, unit])
 
 		const tooltipLabel = React.useMemo(() => {
@@ -300,7 +300,8 @@ const ChartTooltipContent = React.forwardRef<
 												<span className="font-medium text-foreground">
 													{content && typeof content === "function"
 														? content(item, key)
-														: item.value.toLocaleString() + (unit ? unit : "")}
+														: (typeof item.value === "number" ? formatNumber(item.value) : String(item.value)) +
+															(unit ? unit : "")}
 												</span>
 											)}
 										</div>
@@ -474,17 +475,19 @@ export {
 	// ChartStyle,
 }
 
-export function pinnedAxisDomain(): AxisDomain {
-	return [
-		0,
-		(dataMax: number) => {
-			if (dataMax > 10) {
-				return Math.round(dataMax)
-			}
-			if (dataMax > 1) {
-				return Math.round(dataMax / 0.1) * 0.1
-			}
-			return dataMax
-		},
-	]
+const roundFloat = (value: number) => Number(value.toPrecision(12))
+
+/**
+ * Four equal intervals for a fixed [0, max] domain (e.g. total memory or disk size), with max as the top tick.
+ * Recharts stops one full step before max, which leaves a large gap below the top tick.
+ */
+export function fixedDomainTicks(domain?: AxisDomain): number[] | undefined {
+	if (!Array.isArray(domain)) {
+		return undefined
+	}
+	const [min, max] = domain
+	if (min !== 0 || typeof max !== "number" || !(max > 0) || !Number.isFinite(max)) {
+		return undefined
+	}
+	return [0, 1, 2, 3, 4].map((i) => roundFloat((max * i) / 4))
 }

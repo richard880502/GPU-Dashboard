@@ -6,11 +6,13 @@ import {
 	ChartLegendContent,
 	ChartTooltip,
 	ChartTooltipContent,
+	fixedDomainTicks,
 	xAxis,
 } from "@/components/ui/chart"
 import { chartMargin, cn, formatShortDate } from "@/lib/utils"
-import type { ChartData, SystemStatsRecord } from "@/types"
-import { useYAxisWidth } from "./hooks"
+import type { ChartOptions, SystemStatsRecord } from "@/types"
+import { hasChartValues, useYAxisWidth } from "./hooks"
+import { ChartNoValues } from "./chart-no-values"
 import type { AxisDomain } from "recharts/types/util/types"
 import { useIntersectionObserver } from "@/lib/use-intersection-observer"
 
@@ -22,10 +24,32 @@ export type DataPoint<T = SystemStatsRecord> = {
 	order?: number
 	strokeOpacity?: number
 	activeDot?: boolean
-	dot?: boolean
+	dot?: boolean | typeof isolatedDot
 	/** Which Y axis this series plots against. Defaults to "left". */
 	yAxisId?: "left" | "right"
 	strokeDasharray?: string
+}
+
+type IsolatedDotProps = {
+	key: string
+	cx: number
+	cy: number
+	stroke: string
+	index: number
+	points: { value: unknown }[]
+}
+
+const hasValue = (point?: { value: unknown }) => typeof point?.value === "number"
+
+/**
+ * Dot renderer that only draws points with no value on either side. Without connectNulls
+ * those points have no line segment, so they would otherwise only be visible on hover.
+ */
+export function isolatedDot({ key, cx, cy, stroke, index, points }: IsolatedDotProps) {
+	if (!hasValue(points[index]) || hasValue(points[index - 1]) || hasValue(points[index + 1])) {
+		return <g key={key} />
+	}
+	return <circle key={key} cx={cx} cy={cy} r={2} fill={stroke} />
 }
 
 export default function LineChartDefault({
@@ -50,7 +74,7 @@ export default function LineChartDefault({
 	chartProps,
 	connectNulls,
 }: {
-	chartData: ChartData
+	chartData: ChartOptions & { systemStats?: SystemStatsRecord[] }
 	// biome-ignore lint/suspicious/noExplicitAny: accepts different data source types (systemStats or containerData)
 	customData?: any[]
 	max?: number
@@ -118,7 +142,7 @@ export default function LineChartDefault({
 					dataKey={dataPoint.dataKey}
 					name={dataPoint.label}
 					type="monotoneX"
-					dot={dataPoint.dot || false}
+					dot={dataPoint.dot ?? (connectNulls ? false : isolatedDot)}
 					strokeWidth={1.5}
 					stroke={color}
 					strokeOpacity={dataPoint.strokeOpacity}
@@ -136,6 +160,9 @@ export default function LineChartDefault({
 	return useMemo(() => {
 		if (displayData.length === 0) {
 			return null
+		}
+		if (!hasChartValues(displayData, dataPoints)) {
+			return <ChartNoValues ref={ref} />
 		}
 		// if (logRender) {
 		// console.log("Rendered", dataPoints?.map((d) => d.label).join(", "), new Date())
@@ -164,6 +191,7 @@ export default function LineChartDefault({
 							className="tracking-tighter"
 							width={yAxisWidth}
 							domain={domain ?? [0, max ?? "auto"]}
+							ticks={fixedDomainTicks(domain ?? [0, max ?? "auto"])}
 							tickFormatter={(value, index) => updateYAxisWidth(tickFormatter(value, index))}
 							tickLine={false}
 							axisLine={false}
@@ -177,6 +205,7 @@ export default function LineChartDefault({
 							className="tracking-tighter"
 							width={rightAxisWidth}
 							domain={domain2 ?? [0, max2 ?? "auto"]}
+							ticks={fixedDomainTicks(domain2 ?? [0, max2 ?? "auto"])}
 							tickFormatter={tickFormatter2 ?? tickFormatter}
 							tickLine={false}
 							axisLine={false}

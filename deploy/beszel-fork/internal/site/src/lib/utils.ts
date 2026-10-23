@@ -1,3 +1,4 @@
+import { i18n } from "@lingui/core"
 import { plural, t } from "@lingui/core/macro"
 import { type ClassValue, clsx } from "clsx"
 import { listenKeys } from "nanostores"
@@ -154,18 +155,17 @@ export const updateFavicon = (() => {
     </linearGradient>
   </defs>
   <path fill="url(#gradient)" d="M35 70H0V0h35q4.4 0 8.2 1.7a21.4 21.4 0 0 1 6.6 4.5q2.9 2.8 4.5 6.6Q56 16.7 56 21a15.4 15.4 0 0 1-.3 3.2 17.6 17.6 0 0 1-.2.8 19.4 19.4 0 0 1-1.5 4 17 17 0 0 1-2.4 3.4 13.5 13.5 0 0 1-2.6 2.3 12.5 12.5 0 0 1-.4.3q1.7 1 3 2.5Q53 39.1 54 41a18.3 18.3 0 0 1 1.5 4 17.4 17.4 0 0 1 .5 3 15.3 15.3 0 0 1 0 1q0 4.4-1.7 8.2a21.4 21.4 0 0 1-4.5 6.6q-2.8 2.9-6.6 4.6Q39.4 70 35 70ZM14 14v14h21a7 7 0 0 0 2.3-.3 6.6 6.6 0 0 0 .4-.2Q39 27 40 26a6.9 6.9 0 0 0 1.5-2.2q.5-1.3.5-2.8a7 7 0 0 0-.4-2.3 6.6 6.6 0 0 0-.1-.4Q40.9 17 40 16a7 7 0 0 0-2.3-1.4 6.9 6.9 0 0 0-2.5-.6 7.9 7.9 0 0 0-.2 0H14Zm0 28v14h21a7 7 0 0 0 2.3-.4 6.6 6.6 0 0 0 .4-.1Q39 54.9 40 54a7 7 0 0 0 1.5-2.2 6.9 6.9 0 0 0 .5-2.6 7.9 7.9 0 0 0 0-.2 7 7 0 0 0-.4-2.3 6.6 6.6 0 0 0-.1-.4Q40.9 45 40 44a7 7 0 0 0-2.3-1.5 6.9 6.9 0 0 0-2.5-.6 7.9 7.9 0 0 0-.2 0H14Z"/>
-  ${
-		downCount > 0 &&
-		`
+  ${downCount > 0 &&
+			`
 		<circle cx="40" cy="50" r="22" fill="#f00"/>
   	<text x="40" y="60" font-size="34" text-anchor="middle" fill="#fff" font-family="Arial" font-weight="bold">${downCount}</text>
 	`
-	}
+			}
 </svg>
 	`
 		const blob = new Blob([svg], { type: "image/svg+xml" })
 		const url = URL.createObjectURL(blob)
-		;(document.querySelector("link[rel='icon']") as HTMLLinkElement).href = url
+			; (document.querySelector("link[rel='icon']") as HTMLLinkElement).href = url
 	}
 })()
 
@@ -225,24 +225,37 @@ export function toFixedFloat(num: number, digits: number) {
 	return parseFloat((digits === 0 ? Math.ceil(num) : num).toFixed(digits))
 }
 
-const decimalFormatters: Map<number, Intl.NumberFormat> = new Map()
+/** Locale used for number formatting: the app's selected language, not the browser's */
+function numberLocale() {
+	return i18n.locale || undefined
+}
+
+/** Format number using the app's selected language (e.g. decimal and grouping separators) */
+export function formatNumber(num: number) {
+	return num.toLocaleString(numberLocale(), { numberingSystem: "latn" })
+}
+
+const decimalFormatters: Map<string, Intl.NumberFormat> = new Map()
 /** Format number to x decimal places, maintaining trailing zeros */
 export function decimalString(num: number, digits = 2) {
 	if (digits === 0) {
 		return Math.ceil(num).toString()
 	}
-	let formatter = decimalFormatters.get(digits)
+	const locale = numberLocale()
+	const key = `${locale}:${digits}`
+	let formatter = decimalFormatters.get(key)
 	if (!formatter) {
-		formatter = new Intl.NumberFormat(undefined, {
+		formatter = new Intl.NumberFormat(locale, {
 			minimumFractionDigits: digits,
 			maximumFractionDigits: digits,
+			numberingSystem: "latn",
 		})
-		decimalFormatters.set(digits, formatter)
+		decimalFormatters.set(key, formatter)
 	}
 	return formatter.format(num)
 }
 
-export function formatMicroseconds(microseconds: number, showDigits = true): string {
+export function formatMicroseconds(microseconds: number, fixedDigits = true): string {
 	if (!Number.isFinite(microseconds)) {
 		return "-"
 	}
@@ -251,15 +264,17 @@ export function formatMicroseconds(microseconds: number, showDigits = true): str
 		return `${microseconds}μs`
 	}
 
+	const digitFormatter = fixedDigits ? decimalString : toFixedFloat
+
 	if (microseconds < 1_000_000) {
 		const milliseconds = microseconds / 1000
 		const digits = milliseconds >= 10 ? 1 : 2
-		return `${decimalString(milliseconds, showDigits ? digits : 0)}ms`
+		return `${digitFormatter(milliseconds, digits)}ms`
 	}
 
 	const seconds = microseconds / 1_000_000
 	const digits = seconds >= 10 ? 1 : 2
-	return `${decimalString(seconds, showDigits ? digits : 0)}s`
+	return `${digitFormatter(seconds, digits)}s`
 }
 
 /** Get value from local or session storage */
@@ -271,14 +286,14 @@ function getStorageValue(key: string, defaultValue: unknown, storageInterface: S
 /** Hook to sync value in local or session storage */
 export function useBrowserStorage<T>(key: string, defaultValue: T, storageInterface: Storage = localStorage) {
 	key = `besz-${key}`
-	const [value, setValue] = useState(() => {
+	const [value, setValue] = useState<T>(() => {
 		return getStorageValue(key, defaultValue, storageInterface)
 	})
 	useEffect(() => {
 		storageInterface?.setItem(key, JSON.stringify(value))
 	}, [key, value])
 
-	return [value, setValue]
+	return [value, setValue] as const
 }
 
 /** Format temperature to user's preferred unit */
@@ -492,48 +507,6 @@ export function runOnce<T extends (...args: any[]) => any>(fn: T): T {
 	}) as T
 }
 
-const visualWidthCache = new Map<string, number>()
-
-/** Get the visual width of a string, accounting for full-width and narrow punctuation characters.
- *  Don't use for monospaced fonts, use .length instead
- */
-function getVisualStringWidth(str: string): number {
-	const cached = visualWidthCache.get(str)
-	if (cached !== undefined) {
-		return cached
-	}
-	let width = 0
-	for (const char of str) {
-		if (char === ".") {
-			width += 0.7
-			continue
-		}
-		const code = char.codePointAt(0) || 0
-		// Hangul Jamo and Syllables are often slightly thinner than Hanzi/Kanji
-		if ((code >= 0x1100 && code <= 0x115f) || (code >= 0xac00 && code <= 0xd7af)) {
-			width += 1.8
-			continue
-		}
-		// Count CJK and other full-width characters as 2 units, others as 1
-		// Arabic and Cyrillic are counted as 1
-		const isFullWidth =
-			(code >= 0x2e80 && code <= 0x9fff) || // CJK Radicals, Symbols, and Ideographs
-			(code >= 0xf900 && code <= 0xfaff) || // CJK Compatibility Ideographs
-			(code >= 0xfe30 && code <= 0xfe6f) || // CJK Compatibility Forms
-			(code >= 0xff00 && code <= 0xff60) || // Fullwidth Forms
-			(code >= 0xffe0 && code <= 0xffe6) || // Fullwidth Symbols
-			code > 0xffff // Emojis and other supplementary plane characters
-		width += isFullWidth ? 2 : 1
-	}
-	visualWidthCache.set(str, width)
-	return width
-}
-
-/** Compare the visual width of two strings imprecisely */
-export function isVisuallyLonger(str1: string, str2: string): boolean {
-	return getVisualStringWidth(str1) > getVisualStringWidth(str2)
-}
-
 /** Parses a filter string into OR'd groups of AND'd terms: "a b, c" -> [["a","b"], ["c"]] */
 export function parseFilterGroups(value: string): string[][] {
 	return value
@@ -551,7 +524,7 @@ export function matchesFilterGroups(searchString: string, groups: string[][]): b
 /** Format seconds to hours, minutes, or seconds */
 export function secondsToString(seconds: number, unit: "hour" | "minute" | "day"): string {
 	const count = Math.floor(seconds / (unit === "hour" ? 3600 : unit === "minute" ? 60 : 86400))
-	const countString = count.toLocaleString()
+	const countString = formatNumber(count)
 	switch (unit) {
 		case "minute":
 			return plural(count, {
