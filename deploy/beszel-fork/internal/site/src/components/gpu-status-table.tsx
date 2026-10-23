@@ -178,17 +178,26 @@ const METER_COLORS = {
 	[MeterState.Crit]: "bg-[hsl(4,82%,55%)] dark:bg-[hsl(4,85%,58%)]",
 } as const
 
-function Meter({ value }: { value: number }) {
+function Meter({ value, label }: { value: number; label?: string }) {
 	const state = getMeterState(value)
 	return (
 		<div className="flex gap-2 items-center tabular-nums tracking-tight w-full min-w-0">
-			<span className="min-w-10 shrink-0">{decimalString(value, value >= 10 ? 1 : 2)}%</span>
+			<span className={cn("shrink-0", label ? "min-w-[5.5rem]" : "min-w-10")}>
+				{label ?? `${decimalString(value, value >= 10 ? 1 : 2)}%`}
+			</span>
 			<span className="flex-1 min-w-8 grid bg-muted h-[1em] rounded-sm overflow-hidden">
 				<span className={cn("h-full", METER_COLORS[state])} style={{ width: `${Math.min(value, 100)}%` }}></span>
 			</span>
 		</div>
 	)
 }
+
+/** GPU memory is reported in MB: 23988 -> "24", 19866 -> "19.9", 121690 -> "121.7" */
+function toGB(mb: number) {
+	return (mb / 1000).toFixed(1).replace(/\.0$/, "")
+}
+
+const freeMem = (row: GpuRow) => Math.max(0, row.memTotal - row.memUsed)
 
 // One icon + color per state (lib/gpu-availability.ts), used for the GPU
 // icons on each server row and the status icon in front of each GPU.
@@ -440,13 +449,14 @@ export function GpuStatusTable() {
 				<table className="w-full min-w-[44rem] text-sm table-fixed">
 					<thead>
 						<tr className="text-left text-muted-foreground border-b">
-							<th className="font-normal py-2 px-2 w-[24%]">Server</th>
-							<th className="font-normal py-2 px-2 w-[10%]">GPU</th>
-							<th className="font-normal py-2 px-2 w-[21%]">Util %</th>
-							<th className="font-normal py-2 px-2 w-[21%]">VRAM %</th>
-							<th className="font-normal py-2 px-2 w-[9%]">Temp C</th>
-							<th className="font-normal py-2 px-2 w-[10%]">Power W</th>
-							<th className="font-normal py-2 px-2 w-[5%]"></th>
+							<th className="font-normal py-2 px-2 w-[22%]">Server</th>
+							<th className="font-normal py-2 px-2 w-[9%]">GPU</th>
+							<th className="font-normal py-2 px-2 w-[18%]">Util %</th>
+							<th className="font-normal py-2 px-2 w-[21%]">VRAM</th>
+							<th className="font-normal py-2 px-2 w-[10%]">{t`Free VRAM`}</th>
+							<th className="font-normal py-2 px-2 w-[8%]">Temp C</th>
+							<th className="font-normal py-2 px-2 w-[8%]">Power W</th>
+							<th className="font-normal py-2 px-2 w-[4%]"></th>
 						</tr>
 					</thead>
 					<tbody>
@@ -509,6 +519,12 @@ export function GpuStatusTable() {
 										<td className="py-2 px-2 min-w-32">
 											<Meter value={group.vramPct} />
 										</td>
+										<td className="py-2 px-2 tabular-nums" title={t`Most free VRAM on a single GPU`}>
+											{(() => {
+												const online = group.gpus.filter((g) => g.availability !== "offline" && g.memTotal)
+												return online.length ? `${toGB(Math.max(...online.map(freeMem)))} GB` : "-"
+											})()}
+										</td>
 										<td className="py-2 px-2 tabular-nums" title="Hottest GPU">
 											{group.maxTemp !== undefined ? `${group.maxTemp.toFixed(0)} °C` : "-"}
 										</td>
@@ -549,7 +565,18 @@ export function GpuStatusTable() {
 														<Meter value={row.util} />
 													</td>
 													<td className="py-2 px-2 min-w-32">
-														<Meter value={row.vramPct} />
+														<Meter
+															value={row.vramPct}
+															label={row.memTotal ? `${toGB(row.memUsed)} / ${toGB(row.memTotal)} GB` : undefined}
+														/>
+													</td>
+													<td
+														className={cn(
+															"py-2 px-2 tabular-nums",
+															row.availability === "free" && "font-semibold text-emerald-600 dark:text-emerald-400"
+														)}
+													>
+														{row.memTotal && row.availability !== "offline" ? `${toGB(freeMem(row))} GB` : "-"}
 													</td>
 													<td className="py-2 px-2 tabular-nums">{row.temp !== undefined ? `${row.temp.toFixed(0)} °C` : "-"}</td>
 													<td className="py-2 px-2 tabular-nums">{row.power !== undefined ? `${row.power.toFixed(1)} W` : "-"}</td>

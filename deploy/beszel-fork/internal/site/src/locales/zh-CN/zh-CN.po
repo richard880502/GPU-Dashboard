@@ -2782,3 +2782,10 @@ msgstr "空闲"
 msgid "Offline"
 msgstr "离线"
 
+#. gpu-monitoring fork
+msgid "Free VRAM"
+msgstr "可用显存"
+
+#. gpu-monitoring fork
+msgid "Most free VRAM on a single GPU"
+msgstr "单张 GPU 最多可用的显存"
