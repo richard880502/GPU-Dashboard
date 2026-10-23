@@ -10,10 +10,10 @@ import {
 	flexRender,
 	getCoreRowModel,
 	getFilteredRowModel,
+	getPaginationRowModel,
 	getSortedRowModel,
 	useReactTable,
 } from "@tanstack/react-table"
-import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
 import {
 	Activity,
 	Box,
@@ -33,6 +33,7 @@ import {
 } from "lucide-react"
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { DataTablePagination, usePagination } from "@/components/ui/data-table-pagination"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
@@ -56,6 +57,7 @@ import {
 	secondsToString,
 	hourWithSeconds,
 	formatShortDate,
+	formatNumber,
 } from "@/lib/utils"
 import { Trans } from "@lingui/react/macro"
 import { useStore } from "@nanostores/react"
@@ -70,7 +72,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { memo, useCallback, useMemo, useEffect, useRef, useState } from "react"
+import { memo, useCallback, useMemo, useEffect, useState } from "react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 // Column definition for S.M.A.R.T. attributes table
@@ -125,6 +127,8 @@ function formatDataUnits(units: number): string {
 
 const SMART_DEVICE_FIELDS = "id,system,name,model,state,capacity,temp,type,hours,cycles,updated"
 
+// gpu-monitoring fork: the longest strings size the system / device / model
+// columns so names aren't cut off (upstream truncates them instead)
 export const createColumns = (
 	longestName: string,
 	longestModel: string,
@@ -246,7 +250,7 @@ export const createColumns = (
 			if (cycles == null) {
 				return <div className="text-muted-foreground ms-1">N/A</div>
 			}
-			return <span className="ms-1">{cycles.toLocaleString()}</span>
+			return <span className="ms-1">{formatNumber(cycles)}</span>
 		},
 	},
 	{
@@ -324,7 +328,7 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 	const [sheetOpen, setSheetOpen] = useState(false)
 	const [rowActionState, setRowActionState] = useState<{ type: "refresh" | "delete"; id: string } | null>(null)
 	const [globalFilter, setGlobalFilter] = useState("")
-	const allSystems = useStore($allSystemsById)
+	const { pagination, onPaginationChange, resetPageIndex } = usePagination()
 
 	// duplicate the devices to test with more rows
 	// if (
@@ -337,6 +341,7 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 	// }
 
 	// Calculate the right width for the columns based on the longest strings among the displayed devices
+	const allSystems = useStore($allSystemsById)
 	const { longestName, longestModel, longestDevice } = useMemo(() => {
 		const result = { longestName: "", longestModel: "", longestDevice: "" }
 		if (!smartDevices || Object.keys(allSystems).length === 0) {
@@ -533,13 +538,19 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 	const table = useReactTable({
 		data: smartDevices || ([] as SmartDeviceRecord[]),
 		columns: tableColumns,
-		onSortingChange: setSorting,
+		onSortingChange: (updater) => {
+			setSorting(updater)
+			resetPageIndex()
+		},
 		onColumnFiltersChange: setColumnFilters,
 		onColumnSizingChange: setColumnSizing,
 		columnResizeMode: "onChange",
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
 		getFilteredRowModel: getFilteredRowModel(),
+		getPaginationRowModel: getPaginationRowModel(),
+		autoResetPageIndex: false,
+		onPaginationChange,
 		onRowSelectionChange: setRowSelection,
 		state: {
 			sorting,
@@ -547,8 +558,12 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 			columnSizing,
 			rowSelection,
 			globalFilter,
+			pagination,
 		},
-		onGlobalFilterChange: setGlobalFilter,
+		onGlobalFilterChange: (value) => {
+			setGlobalFilter(value)
+			resetPageIndex()
+		},
 		globalFilterFn: (row, _columnId, filterValue) => {
 			const disk = row.original
 			const systemName = $allSystemsById.get()[disk.system]?.name ?? ""
@@ -585,7 +600,7 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 							<Input
 								placeholder={t`Filter...`}
 								value={globalFilter}
-								onChange={(event) => setGlobalFilter(event.target.value)}
+								onChange={(event) => table.setGlobalFilter(event.target.value)}
 								className="px-4 w-full max-w-full md:w-64"
 							/>
 							{globalFilter && (
@@ -595,7 +610,7 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 									size="icon"
 									aria-label={t`Clear`}
 									className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground"
-									onClick={() => setGlobalFilter("")}
+									onClick={() => table.setGlobalFilter("")}
 								>
 									<XIcon className="h-4 w-4" />
 								</Button>
@@ -611,6 +626,7 @@ export default function DisksTable({ systemId }: { systemId?: string }) {
 					columnSizing={columnSizing}
 					openSheet={openSheet}
 				/>
+				<DataTablePagination table={table} showSelected={false} />
 			</Card>
 			<DiskSheet diskId={activeDiskId} open={sheetOpen} onOpenChange={setSheetOpen} />
 		</div>
@@ -632,79 +648,41 @@ const SmartDevicesTable = memo(function SmartDevicesTable({
 	columnSizing: ColumnSizingState
 	openSheet: (disk: SmartDeviceRecord) => void
 }) {
-	const scrollRef = useRef<HTMLDivElement>(null)
-
-	const virtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
-		count: rows.length,
-		estimateSize: () => 65,
-		getScrollElement: () => scrollRef.current,
-		overscan: 5,
-	})
-	const virtualRows = virtualizer.getVirtualItems()
-
-	const paddingTop = Math.max(0, virtualRows[0]?.start ?? 0 - virtualizer.options.scrollMargin)
-	const paddingBottom = Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0))
-
 	const customSized = isCustomSized(columnSizing)
 	const columnSizeVars = useColumnSizeVars(table, columnSizing, "smart-col")
 	const tableProps = getResizableTableProps("smart-col", customSized)
 
 	return (
-		<div
-			className={cn(
-				"h-min max-h-[calc(100dvh-17rem)] max-w-full relative overflow-auto rounded-md border",
-				(!rows.length || rows.length > 2) && "min-h-50"
-			)}
-			ref={scrollRef}
-			style={columnSizeVars}
-		>
-			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
-				<table className={cn("text-sm text-nowrap", tableProps.className)} style={tableProps.style}>
-					<ResizableTableColGroup table={table} prefix="smart-col" customSized={customSized} />
-					<ResizableTableHead
-						table={table}
-						prefix="smart-col"
-						customSized={customSized}
-						columnSizing={columnSizing}
-					/>
-					<TableBody>
-						{rows.length ? (
-							virtualRows.map((virtualRow) => {
-								const row = rows[virtualRow.index]
-								return (
-									<SmartDeviceTableRow
-										key={row.id}
-										row={row}
-										virtualRow={virtualRow}
-										openSheet={openSheet}
-										customSized={customSized}
-									/>
-								)
-							})
-						) : (
-							<TableCell colSpan={colLength} className="h-37 text-center pointer-events-none">
-								{data ? (
-									<Trans>No results.</Trans>
-								) : (
-									<LoaderCircleIcon className="animate-spin size-10 opacity-60 mx-auto" />
-								)}
-							</TableCell>
-						)}
-					</TableBody>
-				</table>
-			</div>
+		<div className="max-w-full relative overflow-auto rounded-md border" style={columnSizeVars}>
+			<table className={cn("text-sm text-nowrap", tableProps.className)} style={tableProps.style}>
+				<ResizableTableColGroup table={table} prefix="smart-col" customSized={customSized} />
+				<ResizableTableHead table={table} prefix="smart-col" customSized={customSized} columnSizing={columnSizing} />
+				<TableBody>
+					{rows.length ? (
+						rows.map((row) => (
+							<SmartDeviceTableRow key={row.id} row={row} openSheet={openSheet} customSized={customSized} />
+						))
+					) : (
+						<TableCell colSpan={colLength} className="h-37 text-center pointer-events-none">
+							{data ? (
+								<Trans>No results.</Trans>
+							) : (
+								<LoaderCircleIcon className="animate-spin size-10 opacity-60 mx-auto" />
+							)}
+						</TableCell>
+					)}
+				</TableBody>
+			</table>
 		</div>
 	)
 })
 
 const SmartDeviceTableRow = memo(function SmartDeviceTableRow({
 	row,
-	virtualRow,
 	openSheet,
 	customSized,
 }: {
 	row: Row<SmartDeviceRecord>
-	virtualRow: VirtualItem
 	openSheet: (disk: SmartDeviceRecord) => void
 	customSized: boolean
 }) {
@@ -720,7 +698,7 @@ const SmartDeviceTableRow = memo(function SmartDeviceTableRow({
 					className={cn("md:ps-5 py-0", customSized && "overflow-hidden")}
 					style={{
 						...getColumnWidthStyle("smart-col", cell.column.id, customSized),
-						height: virtualRow.size,
+						height: 65,
 					}}
 				>
 					{flexRender(cell.column.columnDef.cell, cell.getContext())}

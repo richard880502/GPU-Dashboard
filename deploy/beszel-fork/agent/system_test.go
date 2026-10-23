@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/henrygd/beszel/internal/common"
 	"github.com/henrygd/beszel/internal/entities/system"
+	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -191,4 +193,37 @@ BogoMIPS                : 300.00`,
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestCpuSockets(t *testing.T) {
+	// two packages with several logical CPUs each, as gopsutil reports on x86 Linux
+	dual := []cpu.InfoStat{{PhysicalID: "0"}, {PhysicalID: "0"}, {PhysicalID: "1"}, {PhysicalID: "1"}}
+	got := cpuSockets(dual)
+	switch {
+	case runtime.GOOS == "windows":
+		assert.Equal(t, 4, got)
+	case runtime.GOOS == "linux" && (runtime.GOARCH == "amd64" || runtime.GOARCH == "386"):
+		assert.Equal(t, 2, got)
+		assert.Equal(t, 0, cpuSockets([]cpu.InfoStat{{}, {}}), "empty PhysicalID is unknown")
+	default:
+		assert.Equal(t, 0, got)
+	}
+}
+
+// gpu-monitoring fork: the hub's regular poll interval is UPDATE_INTERVAL_MS
+// (5s / 30s here), so details must go out on any non-realtime interval, not
+// only on upstream's 60s one.
+func TestAttachSystemDetailsOnAnyRegularInterval(t *testing.T) {
+	agent := &Agent{systemDetails: system.Details{Hostname: "gpu-node"}}
+	for _, interval := range []uint16{5000, 30_000, defaultDataCacheTimeMs} {
+		original := &system.CombinedData{}
+		response := agent.attachSystemDetails(original, interval, true)
+		require.NotNil(t, response.Details, "interval %d", interval)
+		assert.Equal(t, "gpu-node", response.Details.Hostname)
+		assert.Nil(t, original.Details)
+	}
+	original := &system.CombinedData{}
+	assert.Nil(t, agent.attachSystemDetails(original, realtimeCacheTimeMs, true).Details, "realtime stream")
+	assert.False(t, isRegularInterval(realtimeCacheTimeMs))
+	assert.True(t, isRegularInterval(5000))
 }

@@ -7,6 +7,7 @@ import {
 	flexRender,
 	getCoreRowModel,
 	getFilteredRowModel,
+	getPaginationRowModel,
 	getSortedRowModel,
 	type Row,
 	type SortingState,
@@ -14,8 +15,8 @@ import {
 	useReactTable,
 	type VisibilityState,
 } from "@tanstack/react-table"
-import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual"
 import { memo, type RefObject, useEffect, useMemo, useRef, useState } from "react"
+import { DataTablePagination, usePagination } from "@/components/ui/data-table-pagination"
 import { Input } from "@/components/ui/input"
 import { TableBody, TableCell, TableRow } from "@/components/ui/table"
 import {
@@ -36,12 +37,15 @@ import { cn, getServerDotColor, useBrowserStorage } from "@/lib/utils"
 import { Sheet, SheetTitle, SheetHeader, SheetContent, SheetDescription } from "../ui/sheet"
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog"
 import { Button } from "@/components/ui/button"
-import { $allSystemsById } from "@/lib/stores"
+import { $allSystemsById, $showLogTimestamps } from "@/lib/stores"
 import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon, MaximizeIcon, RefreshCwIcon, XIcon } from "lucide-react"
 import { Separator } from "../ui/separator"
 import { $router, Link } from "../router"
 import { listenKeys } from "nanostores"
+import { useStore } from "@nanostores/react"
 import { getPagePath } from "@nanostores/router"
+import { LogsDisplay, LogsFullscreenDialog, LogsIconButton, LogsTimestampToggle } from "@/components/logs-display"
+import { getLogTimestampDecorations } from "@/lib/logs"
 
 const syntaxTheme = "github-dark-dimmed"
 
@@ -72,6 +76,7 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 
 	const [rowSelection, setRowSelection] = useState({})
 	const [globalFilter, setGlobalFilter] = useState("")
+	const { pagination, onPaginationChange, resetPageIndex } = usePagination()
 
 	useEffect(() => {
 		function fetchData(systemId?: string) {
@@ -136,7 +141,13 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
 		getFilteredRowModel: getFilteredRowModel(),
-		onSortingChange: setSorting,
+		getPaginationRowModel: getPaginationRowModel(),
+		autoResetPageIndex: false,
+		onPaginationChange,
+		onSortingChange: (updater) => {
+			setSorting(updater)
+			resetPageIndex()
+		},
 		onColumnFiltersChange: setColumnFilters,
 		onColumnVisibilityChange: setColumnVisibility,
 		onColumnSizingChange: setColumnSizing,
@@ -154,8 +165,12 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 			columnSizing,
 			rowSelection,
 			globalFilter,
+			pagination,
 		},
-		onGlobalFilterChange: setGlobalFilter,
+		onGlobalFilterChange: (value) => {
+			setGlobalFilter(value)
+			resetPageIndex()
+		},
 		globalFilterFn: (row, _columnId, filterValue) => {
 			const container = row.original
 			const systemName = $allSystemsById.get()[container.system]?.name ?? ""
@@ -193,7 +208,7 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 						<Input
 							placeholder={t`Filter...`}
 							value={globalFilter}
-							onChange={(e) => setGlobalFilter(e.target.value)}
+							onChange={(e) => table.setGlobalFilter(e.target.value)}
 							className="ps-4 pe-10 w-full"
 						/>
 						{globalFilter && (
@@ -203,7 +218,7 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 								size="icon"
 								aria-label={t`Clear`}
 								className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground"
-								onClick={() => setGlobalFilter("")}
+								onClick={() => table.setGlobalFilter("")}
 							>
 								<XIcon className="h-4 w-4" />
 							</Button>
@@ -220,6 +235,7 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 					columnSizing={columnSizing}
 				/>
 			</div>
+			<DataTablePagination table={table} showSelected={false} />
 		</Card>
 	)
 }
@@ -237,8 +253,6 @@ const AllContainersTable = memo(function AllContainersTable({
 	data: ContainerRecord[] | undefined
 	columnSizing: ColumnSizingState
 }) {
-	// The virtualizer will need a reference to the scrollable container element
-	const scrollRef = useRef<HTMLDivElement>(null)
 	const activeContainer = useRef<ContainerRecord | null>(null)
 	const [sheetOpen, setSheetOpen] = useState(false)
 	const openSheet = (container: ContainerRecord) => {
@@ -246,70 +260,39 @@ const AllContainersTable = memo(function AllContainersTable({
 		setSheetOpen(true)
 	}
 
-	const virtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
-		count: rows.length,
-		estimateSize: () => 54,
-		getScrollElement: () => scrollRef.current,
-		overscan: 5,
-	})
-	const virtualRows = virtualizer.getVirtualItems()
-
-	const paddingTop = Math.max(0, virtualRows[0]?.start ?? 0 - virtualizer.options.scrollMargin)
-	const paddingBottom = Math.max(0, virtualizer.getTotalSize() - (virtualRows[virtualRows.length - 1]?.end ?? 0))
-
 	const customSized = isCustomSized(columnSizing)
 	const columnSizeVars = useColumnSizeVars(table, columnSizing, "container-col")
 	const tableProps = getResizableTableProps("container-col", customSized)
 
 	return (
-		<div
-			className={cn(
-				"h-min max-h-[calc(100dvh-17rem)] max-w-full relative overflow-auto border rounded-md",
-				// don't set min height if there are less than 2 rows, do set if we need to display the empty state
-				(!rows.length || rows.length > 2) && "min-h-50"
-			)}
-			ref={scrollRef}
-			style={columnSizeVars}
-		>
-			{/* add header height to table size */}
-			<div style={{ height: `${virtualizer.getTotalSize() + 48}px`, paddingTop, paddingBottom }}>
-				<table className={cn("text-sm h-full text-nowrap", tableProps.className)} style={tableProps.style}>
-					<ResizableTableColGroup table={table} prefix="container-col" customSized={customSized} />
-					<ResizableTableHead
-						table={table}
-						prefix="container-col"
-						customSized={customSized}
-						columnSizing={columnSizing}
-						originalHeadStyle={(width) => ({ width })}
-					/>
-					<TableBody>
-						{rows.length ? (
-							virtualRows.map((virtualRow) => {
-								const row = rows[virtualRow.index]
-								return (
-									<ContainerTableRow
-										key={row.id}
-										row={row}
-										virtualRow={virtualRow}
-										openSheet={openSheet}
-										customSized={customSized}
-									/>
-								)
-							})
-						) : (
-							<TableRow>
-								<TableCell colSpan={colLength} className="h-37 text-center pointer-events-none">
-									{data ? (
-										<Trans>No results.</Trans>
-									) : (
-										<LoaderCircleIcon className="animate-spin size-10 opacity-60 mx-auto" />
-									)}
-								</TableCell>
-							</TableRow>
-						)}
-					</TableBody>
-				</table>
-			</div>
+		<div className="max-w-full relative overflow-auto border rounded-md" style={columnSizeVars}>
+			<table className={cn("text-sm h-full text-nowrap", tableProps.className)} style={tableProps.style}>
+				<ResizableTableColGroup table={table} prefix="container-col" customSized={customSized} />
+				<ResizableTableHead
+					table={table}
+					prefix="container-col"
+					customSized={customSized}
+					columnSizing={columnSizing}
+					originalHeadStyle={(width) => ({ width })}
+				/>
+				<TableBody>
+					{rows.length ? (
+						rows.map((row) => (
+							<ContainerTableRow key={row.id} row={row} openSheet={openSheet} customSized={customSized} />
+						))
+					) : (
+						<TableRow>
+							<TableCell colSpan={colLength} className="h-37 text-center pointer-events-none">
+								{data ? (
+									<Trans>No results.</Trans>
+								) : (
+									<LoaderCircleIcon className="animate-spin size-10 opacity-60 mx-auto" />
+								)}
+							</TableCell>
+						</TableRow>
+					)}
+				</TableBody>
+			</table>
 			<ContainerSheet sheetOpen={sheetOpen} setSheetOpen={setSheetOpen} activeContainer={activeContainer} />
 		</div>
 	)
@@ -328,7 +311,13 @@ async function getLogs(container: ContainerRecord): Promise<{ html: string; raw:
 			}),
 		])
 		const raw = logsResp.logs ?? ""
-		const html = raw ? highlighter.codeToHtml(raw, { lang: "log", theme: syntaxTheme }) : t`No results.`
+		const html = raw
+			? highlighter.codeToHtml(raw, {
+					lang: "log",
+					theme: syntaxTheme,
+					decorations: getLogTimestampDecorations(raw),
+				})
+			: t`No results.`
 		return { html, raw }
 	} catch (error) {
 		console.error(error)
@@ -344,6 +333,11 @@ function escapeHtml(s: string): string {
 function escapeRegExp(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
+
+// Same leading timestamps getLogTimestampDecorations marks; the plain-text
+// search view drops them when timestamps are hidden, so matches line up with
+// what is on screen.
+const LOG_TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2}) /gm
 
 // Renders raw log text (not shiki's markup -- searching that would mean
 // matching against syntax-highlighting <span> tags) as escaped, whitespace-
@@ -382,29 +376,33 @@ function LogSearchBar({
 	onNavigate: (dir: 1 | -1) => void
 }) {
 	return (
-		<div className="relative flex-1 max-w-64 flex items-center gap-1 min-w-0">
-			<Input
-				value={search}
-				onChange={(e) => setSearch(e.target.value)}
-				onKeyDown={(e) => {
-					if (e.key === "Enter") {
-						e.preventDefault()
-						onNavigate(e.shiftKey ? -1 : 1)
-					}
-				}}
-				placeholder={t`Search logs...`}
-				className="h-8 pe-7"
-			/>
-			{search && (
-				<button
-					type="button"
-					onClick={() => setSearch("")}
-					className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100"
-					aria-label={t`Clear search`}
-				>
-					<XIcon className="size-3.5" />
-				</button>
-			)}
+		<div className="flex-1 max-w-72 flex items-center gap-1 min-w-0">
+			{/* the clear button is positioned against the input, not the whole bar,
+			    so it doesn't sit on top of the match counter */}
+			<div className="relative flex-1 min-w-0">
+				<Input
+					value={search}
+					onChange={(e) => setSearch(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === "Enter") {
+							e.preventDefault()
+							onNavigate(e.shiftKey ? -1 : 1)
+						}
+					}}
+					placeholder={t`Search logs...`}
+					className="h-8 pe-7"
+				/>
+				{search && (
+					<button
+						type="button"
+						onClick={() => setSearch("")}
+						className="absolute end-1.5 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100"
+						aria-label={t`Clear search`}
+					>
+						<XIcon className="size-3.5" />
+					</button>
+				)}
+			</div>
 			{search.trim() && (
 				<div className="flex items-center gap-0.5 text-xs text-muted-foreground tabular-nums shrink-0">
 					<button
@@ -455,6 +453,8 @@ async function getInfoHtml(container: ContainerRecord): Promise<{ html: string; 
 	}
 }
 
+// Exported for the GPU status table, which opens the same sheet for a GPU
+// process's container (gpu-monitoring fork addition).
 export function ContainerSheet({
 	sheetOpen,
 	setSheetOpen,
@@ -474,14 +474,17 @@ export function ContainerSheet({
 	const [infoFullscreenOpen, setInfoFullscreenOpen] = useState<boolean>(false)
 	const [isRefreshingLogs, setIsRefreshingLogs] = useState<boolean>(false)
 	const logsContainerRef = useRef<HTMLDivElement>(null)
+	const showTimestamps = useStore($showLogTimestamps)
 
 	const container = activeContainer.current
+	const searching = logsSearch.trim() !== ""
 
-	const { html: searchHtml, count: matchCount } = useMemo(
-		() => (logsSearch.trim() ? highlightLogMatches(logsRaw, logsSearch.trim(), activeMatch) : { html: "", count: 0 }),
-		[logsRaw, logsSearch, activeMatch]
-	)
-	const logsDisplay = logsSearch.trim() ? searchHtml : logsHtml
+	const { html: searchHtml, count: matchCount } = useMemo(() => {
+		if (!searching) return { html: "", count: 0 }
+		const text = showTimestamps ? logsRaw : logsRaw.replace(LOG_TIMESTAMP_PREFIX, "")
+		return highlightLogMatches(text, logsSearch.trim(), activeMatch)
+	}, [logsRaw, logsSearch, activeMatch, searching, showTimestamps])
+	const logsDisplay = searching ? searchHtml : logsHtml
 
 	const navigateMatch = (dir: 1 | -1) => {
 		setActiveMatch((i) => (matchCount ? (i + dir + matchCount) % matchCount : 0))
@@ -496,9 +499,9 @@ export function ContainerSheet({
 	// While a search is active, follow the current match instead of pinning
 	// to the bottom of the log.
 	useEffect(() => {
-		if (!logsSearch.trim()) return
+		if (!searching) return
 		logsContainerRef.current?.querySelector(".log-match-current")?.scrollIntoView({ block: "center" })
-	}, [logsDisplay, logsSearch])
+	}, [logsDisplay, searching])
 
 	useEffect(() => {
 		setActiveMatch(0)
@@ -513,7 +516,7 @@ export function ContainerSheet({
 			const logs = await getLogs(container)
 			setLogsHtml(logs.html)
 			setLogsRaw(logs.raw)
-			if (!logsSearch.trim()) {
+			if (!searching) {
 				setTimeout(scrollLogsToBottom, 20)
 			}
 		} catch (error) {
@@ -547,20 +550,29 @@ export function ContainerSheet({
 
 	if (!container) return null
 
+	const searchBar = (
+		<LogSearchBar
+			search={logsSearch}
+			setSearch={setLogsSearch}
+			matchCount={matchCount}
+			activeMatch={activeMatch}
+			onNavigate={navigateMatch}
+		/>
+	)
+	const systemName = $allSystemsById.get()[container.system]?.name ?? ""
+
 	return (
 		<>
 			<LogsFullscreenDialog
 				open={logsFullscreenOpen}
 				onOpenChange={setLogsFullscreenOpen}
 				logsDisplay={logsDisplay}
-				containerName={container.name}
+				name={container.name}
 				onRefresh={refreshLogs}
 				isRefreshing={isRefreshingLogs}
-				search={logsSearch}
-				setSearch={setLogsSearch}
-				matchCount={matchCount}
-				activeMatch={activeMatch}
-				onNavigate={navigateMatch}
+				toolbar={searchBar}
+				contentClassName={searching ? "whitespace-pre-wrap font-mono" : undefined}
+				scrollToSelector={searching ? ".log-match-current" : undefined}
 			/>
 			<InfoFullscreenDialog
 				open={infoFullscreenOpen}
@@ -581,12 +593,12 @@ export function ContainerSheet({
 									className={cn(
 										"inline-block size-1.5 rounded-full shrink-0",
 										getServerDotColor(
-											$allSystemsById.get()[container.system]?.name ?? "",
+											systemName,
 											Object.values($allSystemsById.get()).map((s) => s.name)
 										)
 									)}
 								/>
-								{$allSystemsById.get()[container.system]?.name ?? ""}
+								{systemName}
 							</Link>
 							<Separator orientation="vertical" className="h-2.5 bg-muted-foreground opacity-70" />
 							{container.status}
@@ -600,51 +612,27 @@ export function ContainerSheet({
 									PID {pid}
 								</>
 							)}
-							{/* {container.ports && (
-								<>
-									<Separator orientation="vertical" className="h-2.5 bg-muted-foreground opacity-70" />
-									{container.ports}
-								</>
-							)} */}
-							{/* <Separator orientation="vertical" className="h-2.5 bg-muted-foreground opacity-70" />
-							{ContainerHealthLabels[container.health as ContainerHealth]} */}
 						</SheetDescription>
 					</SheetHeader>
 					<div className="px-3 pb-3 -mt-4 flex flex-col gap-3 h-full items-start">
 						<div className="flex items-center w-full gap-2">
 							<h3 className="shrink-0">{t`Logs`}</h3>
-							<LogSearchBar
-								search={logsSearch}
-								setSearch={setLogsSearch}
-								matchCount={matchCount}
-								activeMatch={activeMatch}
-								onNavigate={navigateMatch}
-							/>
-							<Button
-								variant="ghost"
-								size="sm"
-								onClick={refreshLogs}
-								className="h-8 w-8 p-0 ms-auto"
-								disabled={isRefreshingLogs}
-							>
+							{searchBar}
+							<LogsTimestampToggle className="ms-auto" />
+							<LogsIconButton label={t`Refresh`} onClick={refreshLogs} disabled={isRefreshingLogs}>
 								<RefreshCwIcon
 									className={`size-4 transition-transform duration-300 ${isRefreshingLogs ? "animate-spin" : ""}`}
 								/>
-							</Button>
-							<Button variant="ghost" size="sm" onClick={() => setLogsFullscreenOpen(true)} className="h-8 w-8 p-0">
+							</LogsIconButton>
+							<LogsIconButton label={t`Fullscreen`} onClick={() => setLogsFullscreenOpen(true)}>
 								<MaximizeIcon className="size-4" />
-							</Button>
+							</LogsIconButton>
 						</div>
-						<div
-							ref={logsContainerRef}
-							className={cn(
-								"max-h-[calc(50dvh-10rem)] w-full overflow-auto p-3 rounded-md bg-gh-dark text-white text-sm",
-								logsSearch.trim() && "whitespace-pre-wrap font-mono",
-								!logsDisplay && ["animate-pulse", "h-full"]
-							)}
-						>
-							<div dangerouslySetInnerHTML={{ __html: logsDisplay }} />
-						</div>
+						<LogsDisplay
+							logsDisplay={logsDisplay}
+							containerRef={logsContainerRef}
+							className={searching ? "whitespace-pre-wrap font-mono" : undefined}
+						/>
 						<div className="flex items-center w-full">
 							<h3>{t`Detail`}</h3>
 							<Button
@@ -673,12 +661,10 @@ export function ContainerSheet({
 
 const ContainerTableRow = memo(function ContainerTableRow({
 	row,
-	virtualRow,
 	openSheet,
 	customSized,
 }: {
 	row: Row<ContainerRecord>
-	virtualRow: VirtualItem
 	openSheet: (container: ContainerRecord) => void
 	customSized: boolean
 }) {
@@ -693,7 +679,7 @@ const ContainerTableRow = memo(function ContainerTableRow({
 					key={cell.id}
 					className={cn("py-0 ps-4.5", customSized && "overflow-hidden")}
 					style={{
-						height: virtualRow.size,
+						height: 54,
 						...getColumnWidthStyle("container-col", cell.column.id, customSized, { width: cell.column.getSize() }),
 					}}
 				>
@@ -703,85 +689,6 @@ const ContainerTableRow = memo(function ContainerTableRow({
 		</TableRow>
 	)
 })
-
-function LogsFullscreenDialog({
-	open,
-	onOpenChange,
-	logsDisplay,
-	containerName,
-	onRefresh,
-	isRefreshing,
-	search,
-	setSearch,
-	matchCount,
-	activeMatch,
-	onNavigate,
-}: {
-	open: boolean
-	onOpenChange: (open: boolean) => void
-	logsDisplay: string
-	containerName: string
-	onRefresh: () => void | Promise<void>
-	isRefreshing: boolean
-	search: string
-	setSearch: (value: string) => void
-	matchCount: number
-	activeMatch: number
-	onNavigate: (dir: 1 | -1) => void
-}) {
-	const outerContainerRef = useRef<HTMLDivElement>(null)
-
-	useEffect(() => {
-		if (!open || !logsDisplay) return
-		if (search.trim()) {
-			outerContainerRef.current?.querySelector(".log-match-current")?.scrollIntoView({ block: "center" })
-			return
-		}
-		// Scroll the outer container to bottom
-		const scrollToBottom = () => {
-			if (outerContainerRef.current) {
-				outerContainerRef.current.scrollTop = outerContainerRef.current.scrollHeight
-			}
-		}
-		setTimeout(scrollToBottom, 50)
-	}, [open, logsDisplay, search])
-
-	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="w-[calc(100vw-20px)] h-[calc(100dvh-20px)] max-w-none p-0 bg-gh-dark border-0 text-white">
-				<DialogTitle className="sr-only">{containerName} logs</DialogTitle>
-				<div className="absolute top-3 left-3 z-10">
-					<LogSearchBar
-						search={search}
-						setSearch={setSearch}
-						matchCount={matchCount}
-						activeMatch={activeMatch}
-						onNavigate={onNavigate}
-					/>
-				</div>
-				<div ref={outerContainerRef} className="h-full overflow-auto">
-					<div
-						className={cn(
-							"h-full w-full px-3 leading-relaxed rounded-md bg-gh-dark text-sm",
-							search.trim() && "whitespace-pre-wrap font-mono"
-						)}
-					>
-						<div className="py-3 pt-14" dangerouslySetInnerHTML={{ __html: logsDisplay }} />
-					</div>
-				</div>
-				<button
-					onClick={onRefresh}
-					className="absolute top-3 right-11 opacity-60 hover:opacity-100 p-1"
-					disabled={isRefreshing}
-					title={t`Refresh`}
-					aria-label={t`Refresh`}
-				>
-					<RefreshCwIcon className={`size-4 transition-transform duration-300 ${isRefreshing ? "animate-spin" : ""}`} />
-				</button>
-			</DialogContent>
-		</Dialog>
-	)
-}
 
 function InfoFullscreenDialog({
 	open,

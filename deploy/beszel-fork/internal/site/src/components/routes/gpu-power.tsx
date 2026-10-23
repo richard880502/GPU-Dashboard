@@ -6,7 +6,6 @@ import { useStore } from "@nanostores/react"
 import { ZapIcon } from "lucide-react"
 import { memo, useEffect, useMemo, useState } from "react"
 import { Bar, BarChart, CartesianGrid, Tooltip, type TooltipProps, XAxis, YAxis } from "recharts"
-import { ActiveAlerts } from "@/components/active-alerts"
 import { FooterRepoLink } from "@/components/footer-repo-link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer } from "@/components/ui/chart"
@@ -290,7 +289,6 @@ export default memo(() => {
 	return (
 		<>
 			<div className="grid gap-4">
-				<ActiveAlerts />
 				<Card className="w-full px-3 py-5 sm:py-6 sm:px-6">
 					<CardHeader className="p-0 mb-4">
 						<div className="grid md:flex gap-x-5 gap-y-3 w-full items-end">

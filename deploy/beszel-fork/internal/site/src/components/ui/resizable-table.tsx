@@ -1,4 +1,5 @@
 import { t } from "@lingui/core/macro"
+import { useLingui as useLinguiContext } from "@lingui/react"
 import {
 	type Column,
 	flexRender,
@@ -151,6 +152,8 @@ export function ResizableTableHead<TData>({
 	/** per-column style the head cell had before resizing existed */
 	originalHeadStyle?: (columnSize: number) => CSSProperties
 }) {
+	// re-render header labels when the locale changes (upstream #2405)
+	useLinguiContext()
 	// Pin every visible column that has no stored width to what the browser
 	// is rendering right now, so the drag starts from the real width.
 	const measureColumns = (event: MouseEvent | TouchEvent) => {

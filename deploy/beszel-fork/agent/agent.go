@@ -5,10 +5,13 @@
 package agent
 
 import (
+	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gliderlabs/ssh"
@@ -22,22 +25,40 @@ import (
 
 const defaultDataCacheTimeMs uint16 = 60_000
 
+// realtimeCacheTimeMs is the interval of the hub's 1s realtime stream.
+const realtimeCacheTimeMs uint16 = 1000
+
+// isRegularInterval reports whether a stats request is one of the hub's
+// regular polls rather than the realtime stream. gpu-monitoring fork: the
+// hub polls on UPDATE_INTERVAL_MS (30s by default in this fork, 5s on our
+// cluster), not upstream's fixed 60s, so the regular interval can't be
+// recognized by its value. Gating on defaultDataCacheTimeMs meant system
+// details and systemd services were never sent, which also kept the hub
+// from ever starting its background SMART/ZFS fetches.
+func isRegularInterval(cacheTimeMs uint16) bool {
+	return cacheTimeMs > realtimeCacheTimeMs
+}
+
 type Agent struct {
 	sync.Mutex                                                                      // Used to lock agent while collecting data
 	debug                     bool                                                  // true if LOG_LEVEL is set to debug
 	zfs                       bool                                                  // true if system has arcstats
 	memCalc                   string                                                // Memory calculation formula
+	forceUseCgroup            bool                                                  // Explicitly use the cgroup mount root for CPU accounting
 	fsNames                   []string                                              // List of filesystem device names being monitored
 	fsStats                   map[string]*system.FsStats                            // Keeps track of disk stats for each filesystem
 	diskPrev                  map[uint16]map[string]prevDisk                        // Previous disk I/O counters per cache interval
+	diskBaseline              map[string]prevDisk                                   // Latest disk I/O counters of any interval, seeds a new interval
 	diskUsageCacheDuration    time.Duration                                         // How long to cache disk usage (to avoid waking sleeping disks)
 	lastDiskUsageUpdate       time.Time                                             // Last time disk usage was collected
-	netInterfaces             map[string]struct{}                                   // Stores all valid network interfaces
+	netInterfaces             map[string]bool                                       // Valid network interfaces; true if byte counters come from MAC stats (Jetson nvethernet)
 	netIoStats                map[uint16]system.NetIoStats                          // Keeps track of bandwidth usage per cache interval
 	netInterfaceDeltaTrackers map[uint16]*deltatracker.DeltaTracker[string, uint64] // Per-cache-time NIC delta trackers
 	dockerManager             *dockerManager                                        // Manages Docker API requests
 	criCollector              *criCollector                                         // Manages CRI (Kubernetes) container requests; nil unless CRI_SOCKET_PATH is set
 	sensorConfig              *SensorConfig                                         // Sensors config
+	tempsReading              atomic.Bool                                           // A temperature read is still running (possibly blocked in the kernel)
+	fansReading               atomic.Bool                                           // A fan read is still running (possibly blocked in the kernel)
 	systemInfo                system.Info                                           // Host system info (dynamic)
 	systemDetails             system.Details                                        // Host system details (static, once-per-connection)
 	detailsDirty              bool                                                  // Whether system details have changed and need to be resent
@@ -47,12 +68,16 @@ type Agent struct {
 	connectionManager         *ConnectionManager                                    // Channel to signal connection events
 	handlerRegistry           *HandlerRegistry                                      // Registry for routing incoming messages
 	server                    *ssh.Server                                           // SSH server
+	serverListener            net.Listener                                          // SSH listener, also closed if Serve has not started yet
+	serverMu                  sync.Mutex                                            // Guards server and serverListener
 	dataDir                   string                                                // Directory for persisting data
 	keys                      []gossh.PublicKey                                     // SSH public keys
 	smartManager              *SmartManager                                         // Manages SMART data
 	systemdManager            *systemdManager                                       // Manages systemd services
 	monitorManager            *MonitorManager                                       // Manages network monitors
 	storagePoolManager        *StoragePoolManager                                   // Manages storage pool and dataset data
+	packageUpdates            *packageUpdatesManager                                // Checks for pending package updates
+	lastHubRequest            atomic.Int64                                          // Wall clock Unix nanoseconds of the last hub stats request
 }
 
 // NewAgent creates a new agent with the given data directory for persisting data.
@@ -77,6 +102,11 @@ func NewAgent(dataDir ...string) (agent *Agent, err error) {
 	}
 
 	agent.memCalc, _ = utils.GetEnv("MEM_CALC")
+
+	if useCgroup, exists := utils.GetEnv("USE_CGROUP"); exists {
+		agent.forceUseCgroup = useCgroup == "true"
+	}
+	agent.initializeCpu()
 	agent.sensorConfig = agent.newSensorConfig()
 
 	// Parse disk usage cache duration (e.g., "15m", "1h") to avoid waking sleeping disks
@@ -103,6 +133,8 @@ func NewAgent(dataDir ...string) (agent *Agent, err error) {
 	}
 
 	slog.Debug(beszel.Version)
+
+	agent.warnIfRootCgroup()
 
 	// initialize docker manager
 	agent.dockerManager = newDockerManager(agent)
@@ -135,7 +167,7 @@ func NewAgent(dataDir ...string) (agent *Agent, err error) {
 	agent.handlerRegistry = NewHandlerRegistry()
 
 	// initialize monitor manager
-	agent.monitorManager = newMonitorManager()
+	agent.monitorManager = newMonitorManager(agent)
 
 	agent.storagePoolManager = newStoragePoolManager()
 
@@ -160,6 +192,9 @@ func NewAgent(dataDir ...string) (agent *Agent, err error) {
 	if err != nil {
 		slog.Debug("Systemd", "err", err)
 	}
+	if agent.systemdManager != nil {
+		agent.systemInfo.SystemdLogs = agent.systemdManager.logsEnabled
+	}
 
 	agent.smartManager, err = NewSmartManager()
 	if err != nil {
@@ -168,6 +203,7 @@ func NewAgent(dataDir ...string) (agent *Agent, err error) {
 
 	// CPU package power (gpu-monitoring fork addition)
 	agent.cpuPower = newCpuPowerReader()
+	agent.packageUpdates = newPackageUpdatesManager(agent.dataDir)
 
 	// initialize GPU manager
 	agent.gpuManager, err = NewGPUManager()
@@ -181,6 +217,18 @@ func NewAgent(dataDir ...string) (agent *Agent, err error) {
 	}
 
 	return agent, nil
+}
+
+// markHubRequest records a hub stats request. It doesn't use the agent lock,
+// which gatherStats holds through collection.
+func (a *Agent) markHubRequest() {
+	a.lastHubRequest.Store(time.Now().UnixNano())
+}
+
+// hubIdleFor reports whether the hub hasn't requested stats for at least d.
+// Wall time counts host suspend toward idle.
+func (a *Agent) hubIdleFor(d time.Duration) bool {
+	return time.Now().UnixNano()-a.lastHubRequest.Load() >= int64(d)
 }
 
 func (a *Agent) gatherStats(options common.DataRequestOptions) *system.CombinedData {
@@ -221,8 +269,8 @@ func (a *Agent) gatherStats(options common.DataRequestOptions) *system.CombinedD
 		slog.Debug("Monitors", "data", data.Monitors)
 	}
 
-	// skip updating systemd services if cache time is not the default 60sec interval
-	if a.systemdManager != nil && cacheTimeMs == defaultDataCacheTimeMs {
+	// skip systemd services on the realtime stream; send them with regular polls
+	if a.systemdManager != nil && isRegularInterval(cacheTimeMs) {
 		totalCount := uint16(a.systemdManager.getServiceStatsCount())
 		if totalCount > 0 {
 			numFailed := a.systemdManager.getFailedServiceCount()
@@ -237,6 +285,10 @@ func (a *Agent) gatherStats(options common.DataRequestOptions) *system.CombinedD
 				data.Info.Services = []uint16{0, 0}
 			}
 		}
+	}
+
+	if a.packageUpdates != nil {
+		data.Info.PackageUpdates = a.packageUpdates.get(time.Now())
 	}
 
 	data.Stats.ExtraFs = make(map[string]*system.FsStats)
@@ -269,10 +321,15 @@ func (a *Agent) gatherStats(options common.DataRequestOptions) *system.CombinedD
 	return a.attachSystemDetails(data, cacheTimeMs, options.IncludeDetails)
 }
 
-// Start initializes and starts the agent with optional WebSocket connection
-func (a *Agent) Start(serverOptions ServerOptions) error {
+// Start initializes and starts the agent with optional WebSocket connection.
+// It runs until ctx is cancelled or the process receives SIGINT or SIGTERM.
+func (a *Agent) Start(ctx context.Context, serverOptions ServerOptions) error {
 	a.keys = serverOptions.Keys
-	return a.connectionManager.Start(serverOptions)
+	err := a.connectionManager.Start(ctx, serverOptions)
+	if err != nil {
+		a.cleanupSensorShadow()
+	}
+	return err
 }
 
 func (a *Agent) getFingerprint() string {

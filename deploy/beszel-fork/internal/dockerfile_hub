@@ -21,8 +21,11 @@ RUN update-ca-certificates
 # image is FROM scratch (no OS, no /usr/share/zoneinfo at all), so without
 # this, time.LoadLocation (and therefore a TZ env var set on the container)
 # can't resolve any zone and silently falls back to UTC.
-ARG TARGETOS TARGETARCH
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags timetzdata -ldflags "-w -s" -o /beszel ./internal/cmd/hub
+ARG TARGETOS TARGETARCH TARGETVARIANT
+RUN if [ "$TARGETARCH" = "arm" ] && [ -n "$TARGETVARIANT" ]; then \
+    export GOARM="${TARGETVARIANT#v}"; \
+  fi; \
+  CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags timetzdata -ldflags "-w -s" -o /beszel ./internal/cmd/hub
 
 # ? -------------------------
 FROM scratch
