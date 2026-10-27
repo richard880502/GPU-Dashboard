@@ -163,7 +163,7 @@ adds the CPU power (RAPL) mount on x86 hosts, and switches back to the old
 container if the new one does not stay up. Print the command first, then run it:
 
 ```bash
-IMG=ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.9.0
+IMG=ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.10.0
 ssh 192.168.1.77 "python3 - $IMG" < deploy/standalone/upgrade-agent.py        # dry run
 ssh 192.168.1.77 "python3 - $IMG --run" < deploy/standalone/upgrade-agent.py  # upgrade
 ssh 192.168.1.77 docker rm beszel-agent-old   # once the system is up in the hub again
