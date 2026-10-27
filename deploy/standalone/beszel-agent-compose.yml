@@ -43,8 +43,8 @@
 # (CPU/memory/image/ports/uptime, plus -- since v2.7.5/v2.7.13 -- Logs and
 # Detail via the same crictl this image now ships; network and Docker-style
 # health checks still aren't available at the CRI level, so those stay
-# unset). See deploy/docker/gpu-process-exporter/gpu_process_exporter.py,
-# which uses the exact same two env vars for GPU-process-to-pod attribution.
+# unset). The same two env vars also let the agent attribute GPU processes
+# to k8s pods.
 #
 # Two ways crictl reaches the socket, depending on the host:
 #
@@ -90,6 +90,11 @@ services:
     restart: unless-stopped
     network_mode: host
     gpus: all
+    # GPU process -> container attribution (agent v2.10.0+, replaces
+    # gpu-process-exporter): nvidia-smi only lists other containers' GPU
+    # processes from the host's PID namespace (drivers 580+), and the agent
+    # reads their /proc/<pid>/cgroup there. Needs HOST_PROC=/proc below.
+    pid: host
     cap_add:
       - SYS_RAWIO
       - SYS_ADMIN
@@ -98,6 +103,8 @@ services:
       - ${SMART_DEVICE_2:-${SMART_DEVICE_1:?}}:${SMART_DEVICE_2:-${SMART_DEVICE_1:?}}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # GPU process owners' user names
+      - /etc/passwd:/host/etc/passwd:ro
       # CPU package power (RAPL) for the power history page. Docker hides this
       # directory inside containers, so it has to be mounted explicitly.
       # x86 only: drop this line on ARM hosts (e.g. DGX Spark), which have none.
@@ -113,6 +120,7 @@ services:
       - GPU_COLLECTOR=${GPU_COLLECTOR:-nvidia-smi}
       - CRI_SOCKET_PATH=${CRI_SOCKET_PATH:-}
       - CRI_EXEC_CONTAINER=${CRI_EXEC_CONTAINER:-}
+      - HOST_PROC=/proc
 
 volumes:
   beszel_agent_data:

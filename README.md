@@ -1,6 +1,6 @@
 # GPU Dashboard
 
-Centralized NVIDIA GPU cluster monitoring built on **Beszel**, **nvitop-exporter**, and a custom **gpu-process-exporter**.
+Centralized NVIDIA GPU cluster monitoring built on **Beszel** (a fork with GPU process attribution) and **nvitop-exporter**.
 
 The dashboard is designed for shared GPU servers where `nvidia-smi` alone is not enough. Besides GPU utilization, VRAM, temperature, and power, it can answer:
 
@@ -28,7 +28,7 @@ This repository contains the Beszel fork, GPU exporters, Docker Compose files, a
 | GPU nodes | `wingene-76` … `wingene-80` |
 | Beszel Agent | `:45876` on every monitored node |
 | nvitop-exporter | `:5051` on every monitored node |
-| gpu-process-exporter | `:5052` on every monitored node |
+| gpu-process-exporter | `:5052`, only for agents older than v2.10.0 (see [GPU process attribution](#gpu-process-attribution)) |
 
 The current inventory is in [`inventory/servers.yaml`](inventory/servers.yaml).
 
@@ -788,6 +788,17 @@ no processes until GPU access is restored.
 
 ## GPU process shows as `host` instead of a container
 
+Since agent v2.10.0 the agent attributes GPU processes itself. Check that it
+runs in the host's PID namespace with `HOST_PROC=/proc` (see
+[GPU process attribution](#gpu-process-attribution)):
+
+```bash
+docker inspect beszel-agent --format 'pid={{.HostConfig.PidMode}} {{range .Config.Env}}{{println .}}{{end}}' | grep -E "pid=|HOST_PROC"
+docker logs beszel-agent 2>&1 | grep -i "attribution"   # "GPU process attribution from host /proc"
+docker exec beszel-agent nvidia-smi --query-compute-apps=pid --format=csv,noheader   # must list the GPU processes
+```
+
+Older agents (or agents without `HOST_PROC`) read gpu-process-exporter instead.
 For Docker workloads:
 
 ```bash
@@ -881,9 +892,28 @@ GPU-Dashboard/
 | Beszel Hub | Central web dashboard and metric storage |
 | Beszel Agent | Host, container, SMART, and GPU collection |
 | nvitop-exporter | Detailed NVIDIA GPU and per-process metrics |
-| gpu-process-exporter | PID → Docker/CRI/Kubernetes workload attribution |
+| gpu-process-exporter | Legacy: PID → Docker/CRI/Kubernetes workload attribution, now done by the agent itself (v2.10.0+) |
 | Beszel fork | GPU process drill-down and attribution integration |
 | Slack monitor | Optional persistent cluster status message |
+
+## GPU process attribution
+
+Which container, Kubernetes pod or host process owns each GPU process is
+worked out by the agent itself (since agent v2.10.0; before that by
+gpu-process-exporter on `:5052`). It lists GPU processes with `nvidia-smi`,
+reads each PID's `/proc/<pid>/cgroup` for its container id, and names it from
+the Docker API or `crictl` (`k8s:<namespace>/<pod>/<container>`), or
+`host:<process>` if it isn't in a container. The agent container needs:
+
+- `--pid=host` (compose: `pid: host`): drivers 580+ only list other
+  containers' GPU processes from the host's PID namespace.
+- `HOST_PROC=/proc`: turns the attribution on. Without it the agent keeps
+  reading gpu-process-exporter.
+- `/etc/passwd:/host/etc/passwd:ro`: process owners' user names.
+
+`deploy/standalone/upgrade-agent.py` and the compose templates set all three.
+After upgrading a node, gpu-process-exporter can be removed:
+`docker rm -f gpu-process-exporter`.
 
 # Why the Beszel fork exists
 
