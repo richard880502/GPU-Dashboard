@@ -37,8 +37,21 @@ jobs:
       # don't need the real UI, so a placeholder page is enough.
       - name: Placeholder frontend for go:embed
         run: mkdir -p internal/site/dist && echo '<!doctype html>' > internal/site/dist/index.html
-      # same as `make test`
-      - run: go test -tags='testing no_ui' ./...
+      # Same tests as `make test`, but a failed test is re-run up to twice
+      # before the job fails. Upstream's agent/hub connection tests
+      # (lifecycle_test.go, agent_connect_test.go) give real listeners and
+      # reconnects ~2s, which busy shared runners sometimes miss -- a
+      # different test each time, always passing on re-run and locally.
+      # A real failure still fails all three attempts. -p 2 runs fewer
+      # packages at once so they compete less for the runner's CPUs.
+      - name: go test (failed tests retried)
+        run: >-
+          go run gotest.tools/gotestsum@v1.13.0
+          --format testname
+          --packages ./...
+          --rerun-fails=2
+          --
+          -tags='testing no_ui' -p 2
 
   frontend:
     name: Frontend typecheck + build
