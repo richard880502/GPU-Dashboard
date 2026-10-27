@@ -1,6 +1,7 @@
-# Full monitoring stack for one monitored GPU node -- beszel-agent plus the
-# two GPU-attribution exporters (nvitop-exporter, gpu-process-exporter),
-# combined into one file. Run this on every GPU server you want to add to
+# Full monitoring stack for one monitored GPU node -- beszel-agent plus
+# nvitop-exporter (per-process GPU memory / utilization), combined into one
+# file. (gpu-process-exporter is no longer needed: the agent maps GPU
+# processes to containers itself since v2.10.0.) Run this on every GPU server you want to add to
 # monitoring; the hub itself runs separately, once, via beszel-hub-compose.yml.
 #
 # Usage:
@@ -51,8 +52,7 @@
 # no-op. CRI_MOUNT_PATH additionally needs to match CRI_SOCKET_PATH so it
 # actually gets bind-mounted in, but only for the plain (non-exec) case.
 #
-# Container Logs/Detail for a CRI (k8s) container (beszel-agent only --
-# gpu-process-exporter never needs this) needs one more thing on top of the
+# Container Logs/Detail for a CRI (k8s) container needs one more thing on top of the
 # socket itself: `crictl logs` reads the log file directly off disk rather
 # than streaming it over the socket, at the same absolute path the CRI
 # runtime recorded it at (typically /var/log/pods on any kubelet-managed
@@ -68,6 +68,11 @@ services:
     restart: unless-stopped
     network_mode: host
     gpus: all
+    # GPU process -> container attribution (agent v2.10.0+, replaces
+    # gpu-process-exporter): nvidia-smi only lists other containers' GPU
+    # processes from the host's PID namespace (drivers 580+), and the agent
+    # reads their /proc/<pid>/cgroup there. Needs HOST_PROC=/proc below.
+    pid: host
     cap_add:
       - SYS_RAWIO
       - SYS_ADMIN
@@ -81,10 +86,9 @@ services:
       # x86 only: drop this line on ARM hosts (e.g. DGX Spark), which have none.
       - /sys/devices/virtual/powercap:/host/powercap:ro
       - beszel_agent_data:/var/lib/beszel-agent
-      # Same CRI_MOUNT_PATH bind as gpu-process-exporter below -- this was
-      # previously missing here, so beszel-agent's own Logs/Detail (and,
-      # before v2.7.5, its Containers-page stats) silently couldn't reach a
-      # direct (non-exec) CRI socket even when gpu-process-exporter could.
+      # GPU process owners' user names
+      - /etc/passwd:/host/etc/passwd:ro
+      # CRI socket and pod logs for k8s nodes (see above)
       - ${CRI_MOUNT_PATH:-/dev/null}:${CRI_MOUNT_PATH:-/dev/null}
       - ${CRI_LOG_PATH:-/dev/null}:${CRI_LOG_PATH:-/dev/null}:ro
     environment:
@@ -94,6 +98,7 @@ services:
       - GPU_COLLECTOR=${GPU_COLLECTOR:-nvidia-smi}
       - CRI_SOCKET_PATH=${CRI_SOCKET_PATH:-}
       - CRI_EXEC_CONTAINER=${CRI_EXEC_CONTAINER:-}
+      - HOST_PROC=/proc
 
   nvitop-exporter:
     image: ghcr.io/richard880502/gpu-dashboard/nvitop-exporter:v1.0.0
@@ -106,23 +111,6 @@ services:
     ports:
       - "5051:5050"
     command: ["--bind-address", "0.0.0.0", "--port", "5050", "--hostname", "${HOSTNAME:?set HOSTNAME}"]
-
-  gpu-process-exporter:
-    image: ghcr.io/richard880502/gpu-dashboard/gpu-process-exporter:v1.4.1
-    container_name: gpu-process-exporter
-    restart: always
-    gpus: all
-    pid: host
-    environment:
-      - EXPORTER_HOSTNAME=${HOSTNAME:?set HOSTNAME}
-      - CRI_SOCKET_PATH=${CRI_SOCKET_PATH:-}
-      - CRI_EXEC_CONTAINER=${CRI_EXEC_CONTAINER:-}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /etc/passwd:/etc/passwd:ro
-      - ${CRI_MOUNT_PATH:-/dev/null}:${CRI_MOUNT_PATH:-/dev/null}
-    ports:
-      - "5052:5052"
 
 volumes:
   beszel_agent_data:

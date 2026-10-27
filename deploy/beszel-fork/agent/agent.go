@@ -56,6 +56,7 @@ type Agent struct {
 	netInterfaceDeltaTrackers map[uint16]*deltatracker.DeltaTracker[string, uint64] // Per-cache-time NIC delta trackers
 	dockerManager             *dockerManager                                        // Manages Docker API requests
 	criCollector              *criCollector                                         // Manages CRI (Kubernetes) container requests; nil unless CRI_SOCKET_PATH is set
+	gpuAttribution            *gpuAttributor                                        // GPU PID -> container from the host's /proc; nil = use gpu-process-exporter
 	sensorConfig              *SensorConfig                                         // Sensors config
 	tempsReading              atomic.Bool                                           // A temperature read is still running (possibly blocked in the kernel)
 	fansReading               atomic.Bool                                           // A fan read is still running (possibly blocked in the kernel)
@@ -146,6 +147,9 @@ func NewAgent(dataDir ...string) (agent *Agent, err error) {
 		dockerClientForCRI = agent.dockerManager.client
 	}
 	agent.criCollector = newCRICollector(dockerClientForCRI)
+
+	// GPU process -> container attribution (gpu-monitoring fork addition)
+	agent.gpuAttribution = newGpuAttributor(dockerClientForCRI, agent.criCollector)
 
 	// initialize system info
 	agent.refreshSystemDetails()
@@ -260,7 +264,7 @@ func (a *Agent) gatherStats(options common.DataRequestOptions) *system.CombinedD
 		data.Containers = append(data.Containers, a.criCollector.collect()...)
 	}
 	if data.Containers != nil {
-		applyContainerGPUStats(data.Containers)
+		applyContainerGPUStats(data.Containers, a.gpuProcessContainers())
 		slog.Debug("Containers", "data", data.Containers)
 	}
 

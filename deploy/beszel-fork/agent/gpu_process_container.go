@@ -6,12 +6,10 @@ package agent
 // Containers page shows at a glance which containers are using which GPU
 // and how much -- no separate process-level page needed.
 //
-// Deliberately does NOT re-derive PID -> container mapping from
-// /proc/<pid>/cgroup + the Docker socket in Go here -- this project already
-// has that logic running, tested, and verified correct in production as
-// gpu-process-exporter (:5052), and per-process GPU memory/utilization is
-// already exposed by nvitop-exporter (:5051). Both already run on every GPU
-// host this agent runs on, so just read their Prometheus text output.
+// The PID -> container mapping comes from the agent itself
+// (gpu_attribution_linux.go) when the host's /proc is mounted, otherwise from
+// gpu-process-exporter (:5052). Per-process GPU memory/utilization is read
+// from nvitop-exporter (:5051).
 
 import (
 	"bufio"
@@ -43,13 +41,24 @@ type containerGPUStats struct {
 	utilPct    float64
 }
 
-// collectContainerGPUStats joins gpu-process-exporter's (PID,GPU index)->container
-// map with nvitop-exporter's per-process GPU memory/utilization, and returns
-// the result grouped by container name.
-func collectContainerGPUStats() map[string]*containerGPUStats {
-	containerByPID := fetchContainerByPID("http://127.0.0.1:5052/metrics")
+// gpuProcessContainers maps every GPU-using (PID, GPU index) to its container,
+// from the host's /proc when mounted, else from gpu-process-exporter.
+// nil = no data (don't report partial/stale results).
+func (a *Agent) gpuProcessContainers() map[pidIndex]pidContainer {
+	if a.gpuAttribution != nil {
+		if m := a.gpuAttribution.containers(); m != nil {
+			return m
+		}
+	}
+	return fetchContainerByPID("http://127.0.0.1:5052/metrics")
+}
+
+// collectContainerGPUStats joins the (PID,GPU index)->container map with
+// nvitop-exporter's per-process GPU memory/utilization, and returns the
+// result grouped by container name.
+func collectContainerGPUStats(containerByPID map[pidIndex]pidContainer) map[string]*containerGPUStats {
 	if containerByPID == nil {
-		return nil // gpu-process-exporter not reachable; don't report partial/stale data
+		return nil
 	}
 	usageByPID, memTotalByIndex := fetchNvitopData("http://127.0.0.1:5051/metrics")
 
@@ -84,16 +93,30 @@ func collectContainerGPUStats() map[string]*containerGPUStats {
 
 // applyContainerGPUStats merges the collected GPU stats onto Beszel's own
 // per-container stats slice, matched by container name.
-func applyContainerGPUStats(containers []*container.Stats) {
-	gpuStats := collectContainerGPUStats()
+func applyContainerGPUStats(containers []*container.Stats, containerByPID map[pidIndex]pidContainer) {
+	gpuStats := collectContainerGPUStats(containerByPID)
 	if gpuStats == nil {
 		return
 	}
 	for _, c := range containers {
+		// Container stats are reused across polls (docker.go keeps them in
+		// containerStatsMap), so clear the GPU fields first: a container that
+		// stopped using the GPU otherwise kept its last GPU pid and memory.
+		c.GpuPid, c.GpuIndex = "", ""
+		c.GpuMemMiB, c.GpuMemPercent, c.GpuUtilPercent = 0, 0, 0
 		stats, ok := gpuStats[c.Name]
 		if !ok {
 			continue
 		}
+		// map iteration order; keep the list stable between polls
+		sort.Slice(stats.pids, func(i, j int) bool {
+			a, errA := strconv.Atoi(stats.pids[i])
+			b, errB := strconv.Atoi(stats.pids[j])
+			if errA != nil || errB != nil {
+				return stats.pids[i] < stats.pids[j]
+			}
+			return a < b
+		})
 		c.GpuPid = strings.Join(stats.pids, ",")
 		c.GpuMemMiB = stats.memMiB
 		c.GpuMemPercent = stats.memPercent
@@ -112,10 +135,9 @@ func applyContainerGPUStats(containers []*container.Stats) {
 // -- "host" if not containerized -- memory, and utilization), so the UI can
 // show what's actually running on a specific GPU when drilled into, not
 // just an aggregate per-container view.
-func attachGPUProcesses(gpuData map[string]system.GPUData) {
-	containerByPID := fetchContainerByPID("http://127.0.0.1:5052/metrics")
+func attachGPUProcesses(gpuData map[string]system.GPUData, containerByPID map[pidIndex]pidContainer) {
 	if containerByPID == nil {
-		return // gpu-process-exporter not reachable; don't report partial/stale data
+		return
 	}
 	usageByPID, memTotalByIndex := fetchNvitopData("http://127.0.0.1:5051/metrics")
 

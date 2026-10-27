@@ -234,7 +234,7 @@ func (a *Agent) getSystemStats(cacheTimeMs uint16) system.Stats {
 		a.systemInfo.GpuPct = 0
 		// get current GPU data
 		if gpuData := a.gpuManager.GetCurrentData(cacheTimeMs); len(gpuData) > 0 {
-			attachGPUProcesses(gpuData)
+			attachGPUProcesses(gpuData, a.gpuProcessContainers())
 			systemStats.GPUData = gpuData
 
 			// add temperatures

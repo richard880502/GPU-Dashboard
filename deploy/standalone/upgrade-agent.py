@@ -11,6 +11,9 @@ policy), and only adds:
 
   - the RAPL powercap mount used for CPU package power, when the host has
     /sys/devices/virtual/powercap (x86; Docker hides it unless mounted)
+  - the host PID namespace, HOST_PROC=/proc and the host's /etc/passwd, for
+    in-agent GPU process -> container attribution (agent v2.10.0+, replaces
+    gpu-process-exporter)
   - with --smart, NVMe devices plus the capabilities smartctl needs
 
 Without --run it only prints the `docker run` command it would use.
@@ -55,10 +58,15 @@ def build_command(image, smart):
         cmd += ["--restart", policy]
     if hc["NetworkMode"] and hc["NetworkMode"] != "default":
         cmd += ["--network", hc["NetworkMode"]]
-    for e in c["Config"]["Env"] or []:
+    # GPU attribution: newer drivers only list other containers' GPU
+    # processes in the host's PID namespace
+    cmd += ["--pid", "host"]
+    env = [e for e in c["Config"]["Env"] or [] if e not in image_env]
+    if not any(e.startswith("HOST_PROC=") for e in env):
+        env.append("HOST_PROC=/proc")
+    for e in env:
         # only what was set on the container; the new image brings its own defaults
-        if e not in image_env:
-            cmd += ["-e", e]
+        cmd += ["-e", e]
     destinations = set()
     for m in c["Mounts"]:
         src = m["Name"] if m["Type"] == "volume" else m["Source"]
@@ -71,6 +79,8 @@ def build_command(image, smart):
         destinations.add(m["Destination"])
     if os.path.isdir(POWERCAP) and "/host/powercap" not in destinations:
         cmd += ["-v", f"{POWERCAP}:/host/powercap:ro"]
+    if "/host/etc/passwd" not in destinations:
+        cmd += ["-v", "/etc/passwd:/host/etc/passwd:ro"]
     devices = {d["PathOnHost"]: d for d in hc.get("Devices") or []}
     for d in smart:
         devices.setdefault(d, {"PathOnHost": d, "PathInContainer": d, "CgroupPermissions": "rwm"})
