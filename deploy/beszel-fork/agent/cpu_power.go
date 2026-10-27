@@ -17,11 +17,25 @@ package agent
 //	-v /sys/devices/virtual/powercap:/host/powercap:ro
 //
 // RAPL_PATH overrides where to look.
+//
+// MSR fallback: some CPUs are newer than the kernel's intel_rapl driver (e.g.
+// Xeon 6 on RHEL 9.2: "driver does not support CPU family 6 model 173"), so
+// no powercap directory exists although the hardware counter does. Without
+// powercap the agent then reads MSR_PKG_ENERGY_STATUS (0x611) itself from
+// /dev/cpu/N/msr, one CPU per physical package, and sums the packages. The
+// counter is 32 bits wide in units of 2^-ESU joules, ESU being bits 12:8 of
+// MSR_RAPL_POWER_UNIT (0x606). It needs the host's msr module (modprobe msr),
+// the /dev/cpu directory passed into the container, and CAP_SYS_RAWIO:
+//
+//	--device /dev/cpu:/dev/cpu --cap-add SYS_RAWIO
 
 import (
+	"encoding/binary"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,10 +46,31 @@ import (
 
 var defaultRaplRoots = []string{"/host/powercap", "/sys/class/powercap"}
 
+const (
+	msrRaplPowerUnit   = 0x606
+	msrPkgEnergyStatus = 0x611
+	defaultMsrDir      = "/dev/cpu"
+	defaultSysCPUDir   = "/sys/devices/system/cpu"
+	defaultCPUInfoPath = "/proc/cpuinfo"
+)
+
+// raplDomain is one package's monotonically increasing energy counter.
+// readEnergy returns it in counter units, unit is joules per unit, and
+// maxRange is the value after which the counter wraps (0 if unknown).
 type raplDomain struct {
 	name       string
-	energyPath string
+	readEnergy func() (uint64, error)
+	unit       float64
 	maxRange   uint64
+}
+
+// msrSource reads model-specific registers, and finds the CPUs to read them
+// from. Fields are injectable for tests.
+type msrSource struct {
+	read       func(cpu int, reg uint32) (uint64, error)
+	sysCPUDir  string
+	cpuInfo    string
+	configured bool // /dev/cpu exists, so a failure is worth a warning
 }
 
 type raplSample struct {
@@ -48,14 +83,20 @@ type cpuPowerReader struct {
 	domains []raplDomain
 	last    map[uint16]raplSample // per stats interval (cacheTimeMs)
 	now     func() time.Time
+	warned  bool // a failing read has been logged
 }
 
-// newCpuPowerReader returns nil when no readable RAPL package domain exists.
+// newCpuPowerReader returns nil when neither a readable RAPL package domain
+// nor the MSR fallback is available.
 func newCpuPowerReader() *cpuPowerReader {
 	roots := defaultRaplRoots
 	if path, ok := utils.GetEnv("RAPL_PATH"); ok && path != "" {
 		roots = []string{path}
 	}
+	return newCpuPowerReaderFrom(roots, defaultMsrSource())
+}
+
+func newCpuPowerReaderFrom(roots []string, msr msrSource) *cpuPowerReader {
 	for _, root := range roots {
 		if domains := findRaplPackages(root); len(domains) > 0 {
 			names := make([]string, len(domains))
@@ -66,8 +107,134 @@ func newCpuPowerReader() *cpuPowerReader {
 			return &cpuPowerReader{domains: domains, last: map[uint16]raplSample{}, now: time.Now}
 		}
 	}
-	slog.Debug("CPU power not available (no readable RAPL package domain)")
+	if domains := findMsrPackages(msr); len(domains) > 0 {
+		names := make([]string, len(domains))
+		for i, d := range domains {
+			names[i] = d.name
+		}
+		slog.Info("CPU power from MSR (no powercap)", "packages", names)
+		return &cpuPowerReader{domains: domains, last: map[uint16]raplSample{}, now: time.Now}
+	}
+	slog.Debug("CPU power not available (no readable RAPL package domain or MSR)")
 	return nil
+}
+
+func defaultMsrSource() msrSource {
+	_, err := os.Stat(defaultMsrDir)
+	return msrSource{
+		read:       readMsrDev(defaultMsrDir),
+		sysCPUDir:  defaultSysCPUDir,
+		cpuInfo:    defaultCPUInfoPath,
+		configured: err == nil,
+	}
+}
+
+// readMsrDev reads 8 bytes at offset reg of dir/N/msr (the msr module's
+// interface: the file offset is the register number).
+func readMsrDev(dir string) func(int, uint32) (uint64, error) {
+	return func(cpu int, reg uint32) (uint64, error) {
+		f, err := os.Open(filepath.Join(dir, strconv.Itoa(cpu), "msr"))
+		if err != nil {
+			return 0, err
+		}
+		defer f.Close()
+		var buf [8]byte
+		if _, err := f.ReadAt(buf[:], int64(reg)); err != nil {
+			return 0, err
+		}
+		return binary.LittleEndian.Uint64(buf[:]), nil
+	}
+}
+
+// findMsrPackages returns one domain per physical package, read through the
+// lowest-numbered CPU of that package. All packages must be readable: a sum
+// over only some of them would silently under-report.
+func findMsrPackages(src msrSource) []raplDomain {
+	if src.read == nil {
+		return nil
+	}
+	sockets := cpuPackages(src.sysCPUDir, src.cpuInfo)
+	ids := make([]int, 0, len(sockets))
+	for id := range sockets {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	domains := make([]raplDomain, 0, len(ids))
+	for _, id := range ids {
+		cpu := sockets[id]
+		units, err := src.read(cpu, msrRaplPowerUnit)
+		if err == nil {
+			_, err = src.read(cpu, msrPkgEnergyStatus)
+		}
+		if err != nil {
+			if src.configured {
+				slog.Warn("CPU power MSR not readable (needs `modprobe msr`, SYS_RAWIO and --device /dev/cpu)", "cpu", cpu, "err", err)
+			}
+			return nil
+		}
+		esu := (units >> 8) & 0x1f
+		domains = append(domains, raplDomain{
+			name: fmt.Sprintf("package-%d(cpu%d)", id, cpu),
+			readEnergy: func() (uint64, error) {
+				v, err := src.read(cpu, msrPkgEnergyStatus)
+				return v & 0xffffffff, err
+			},
+			unit:     1 / float64(uint64(1)<<esu),
+			maxRange: 1 << 32,
+		})
+	}
+	return domains
+}
+
+// cpuPackages maps each physical package id to its lowest online CPU number,
+// from sysfs topology, else /proc/cpuinfo, else just cpu0.
+func cpuPackages(sysCPUDir, cpuInfo string) map[int]int {
+	pkgs := map[int]int{}
+	add := func(pkg, cpu int) {
+		if pkg < 0 {
+			return
+		}
+		if cur, ok := pkgs[pkg]; !ok || cpu < cur {
+			pkgs[pkg] = cpu
+		}
+	}
+	matches, _ := filepath.Glob(filepath.Join(sysCPUDir, "cpu[0-9]*", "topology", "physical_package_id"))
+	for _, m := range matches {
+		cpu, err := strconv.Atoi(strings.TrimPrefix(filepath.Base(filepath.Dir(filepath.Dir(m))), "cpu"))
+		pkg, err2 := strconv.Atoi(raplReadString(m))
+		if err == nil && err2 == nil {
+			add(pkg, cpu)
+		}
+	}
+	if len(pkgs) > 0 {
+		return pkgs
+	}
+	// /proc/cpuinfo blocks: "processor : N" ... "physical id : M"
+	if b, err := os.ReadFile(cpuInfo); err == nil {
+		cpu := -1
+		for _, line := range strings.Split(string(b), "\n") {
+			key, val, ok := strings.Cut(line, ":")
+			if !ok {
+				continue
+			}
+			val = strings.TrimSpace(val)
+			switch strings.TrimSpace(key) {
+			case "processor":
+				if n, err := strconv.Atoi(val); err == nil {
+					cpu = n
+				}
+			case "physical id":
+				if n, err := strconv.Atoi(val); err == nil && cpu >= 0 {
+					add(n, cpu)
+				}
+			}
+		}
+	}
+	if len(pkgs) == 0 {
+		slog.Debug("CPU topology unknown, reading MSR of cpu0 only")
+		pkgs[0] = 0
+	}
+	return pkgs
 }
 
 // findRaplPackages lists readable top-level package domains under root, which
@@ -97,7 +264,12 @@ func findRaplPackages(root string) []raplDomain {
 		}
 		maxRange, _ := raplReadUint(filepath.Join(dir, "max_energy_range_uj"))
 		seen[base] = true
-		domains = append(domains, raplDomain{name: name, energyPath: energyPath, maxRange: maxRange})
+		domains = append(domains, raplDomain{
+			name:       name,
+			readEnergy: func() (uint64, error) { return raplReadUint(energyPath) },
+			unit:       1e-6, // energy_uj is in microjoules
+			maxRange:   maxRange,
+		})
 	}
 	return domains
 }
@@ -109,8 +281,12 @@ func (r *cpuPowerReader) read(cacheTimeMs uint16) (float64, bool) {
 	defer r.mu.Unlock()
 	cur := raplSample{at: r.now(), energy: make([]uint64, len(r.domains))}
 	for i, d := range r.domains {
-		v, err := raplReadUint(d.energyPath)
+		v, err := d.readEnergy()
 		if err != nil {
+			if !r.warned {
+				r.warned = true
+				slog.Warn("CPU power counter not readable, no CPU power reported", "domain", d.name, "err", err)
+			}
 			return 0, false
 		}
 		cur.energy[i] = v
@@ -124,7 +300,7 @@ func (r *cpuPowerReader) read(cacheTimeMs uint16) (float64, bool) {
 	if seconds <= 0 {
 		return 0, false
 	}
-	var microjoules float64
+	var joules float64
 	for i, d := range r.domains {
 		delta := cur.energy[i] - prev.energy[i]
 		if cur.energy[i] < prev.energy[i] {
@@ -133,9 +309,9 @@ func (r *cpuPowerReader) read(cacheTimeMs uint16) (float64, bool) {
 			}
 			delta = d.maxRange - prev.energy[i] + cur.energy[i] // counter wrapped
 		}
-		microjoules += float64(delta)
+		joules += float64(delta) * d.unit
 	}
-	watts := microjoules / 1e6 / seconds
+	watts := joules / seconds
 	// a reading far beyond any desktop/server CPU means a bad counter, not power
 	if watts < 0 || watts > 2000 {
 		return 0, false

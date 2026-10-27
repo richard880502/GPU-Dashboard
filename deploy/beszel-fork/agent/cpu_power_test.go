@@ -124,3 +124,159 @@ func TestCpuPowerRejectsBadCounters(t *testing.T) {
 	_, ok = r.read(60000)
 	assert.False(t, ok, "no elapsed time")
 }
+
+// fakeMsr serves MSR reads from a map keyed by cpu and register.
+type fakeMsr struct {
+	regs map[[2]uint64]uint64
+	fail bool
+}
+
+func (f *fakeMsr) read(cpu int, reg uint32) (uint64, error) {
+	if f.fail {
+		return 0, os.ErrPermission
+	}
+	v, ok := f.regs[[2]uint64{uint64(cpu), uint64(reg)}]
+	if !ok {
+		return 0, os.ErrNotExist
+	}
+	return v, nil
+}
+
+func (f *fakeMsr) set(cpu int, reg uint32, v uint64) { f.regs[[2]uint64{uint64(cpu), uint64(reg)}] = v }
+
+// writeTopology fakes /sys/devices/system/cpu: one entry per cpu -> package.
+func writeTopology(t *testing.T, packages map[int]int) string {
+	t.Helper()
+	root := t.TempDir()
+	for cpu, pkg := range packages {
+		dir := filepath.Join(root, "cpu"+strconv.Itoa(cpu), "topology")
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "physical_package_id"), []byte(strconv.Itoa(pkg)+"\n"), 0o644))
+	}
+	return root
+}
+
+// two sockets with cpus 0-1 on package 0 and 2-3 on package 1; ESU 14 (the
+// usual 61 microjoule unit) on both
+func twoSocketMsr(t *testing.T) (*fakeMsr, msrSource) {
+	f := &fakeMsr{regs: map[[2]uint64]uint64{}}
+	for _, cpu := range []int{0, 2} {
+		f.set(cpu, msrRaplPowerUnit, 0xa0e03) // bits 12:8 = 0x0e = 14
+		f.set(cpu, msrPkgEnergyStatus, 0)
+	}
+	return f, msrSource{
+		read:       f.read,
+		sysCPUDir:  writeTopology(t, map[int]int{0: 0, 1: 0, 2: 1, 3: 1}),
+		cpuInfo:    filepath.Join(t.TempDir(), "missing"),
+		configured: true,
+	}
+}
+
+func TestCpuPackagesTopology(t *testing.T) {
+	root := writeTopology(t, map[int]int{0: 0, 1: 0, 2: 1, 3: 1, 10: 1})
+	assert.Equal(t, map[int]int{0: 0, 1: 2}, cpuPackages(root, "/nonexistent"))
+}
+
+func TestCpuPackagesFromCpuinfoAndCpu0Fallback(t *testing.T) {
+	info := filepath.Join(t.TempDir(), "cpuinfo")
+	require.NoError(t, os.WriteFile(info, []byte(
+		"processor\t: 0\nmodel name\t: x\nphysical id\t: 0\n\n"+
+			"processor\t: 1\nphysical id\t: 1\n\n"+
+			"processor\t: 2\nphysical id\t: 0\n"), 0o644))
+	assert.Equal(t, map[int]int{0: 0, 1: 1}, cpuPackages("/nonexistent", info))
+	assert.Equal(t, map[int]int{0: 0}, cpuPackages("/nonexistent", "/nonexistent"))
+}
+
+func TestCpuPowerMsrSumsSocketsWithUnitsAndWrap(t *testing.T) {
+	f, src := twoSocketMsr(t)
+	r := newCpuPowerReaderFrom([]string{filepath.Join(t.TempDir(), "no-powercap")}, src)
+	require.NotNil(t, r)
+	require.Len(t, r.domains, 2)
+	advance := fakeClock(r)
+
+	_, ok := r.read(60000) // baseline
+	assert.False(t, ok)
+
+	// 2 s later each socket used 2^14 units = 1 J (the upper register bits
+	// above the 32-bit counter are ignored)
+	advance(2 * time.Second)
+	f.set(0, msrPkgEnergyStatus, 1<<14|0xabcd<<32)
+	f.set(2, msrPkgEnergyStatus, 1<<14)
+	watts, ok := r.read(60000)
+	require.True(t, ok)
+	assert.InDelta(t, 1.0, watts, 1e-9) // 2 J / 2 s
+
+	// socket 0 wraps its 32-bit counter: 2^32-2^14 -> 2^14 is 2 J; socket 1
+	// is unchanged. Over 1 s that is 2 W
+	f.set(0, msrPkgEnergyStatus, 0xffffffff-(1<<14)+1)
+	advance(time.Second)
+	_, _ = r.read(60000)
+	f.set(0, msrPkgEnergyStatus, 1<<14)
+	advance(time.Second)
+	watts, ok = r.read(60000)
+	require.True(t, ok)
+	assert.InDelta(t, 2.0, watts, 1e-9)
+}
+
+func TestCpuPowerMsrEnergyUnitFromRegister(t *testing.T) {
+	f, src := twoSocketMsr(t)
+	f.set(0, msrRaplPowerUnit, 0xa1003) // ESU 16: 2^-16 J per unit
+	r := newCpuPowerReaderFrom(nil, src)
+	require.NotNil(t, r)
+	advance := fakeClock(r)
+	r.read(60000)
+	advance(time.Second)
+	f.set(0, msrPkgEnergyStatus, 1<<16)
+	watts, ok := r.read(60000)
+	require.True(t, ok)
+	assert.InDelta(t, 1.0, watts, 1e-9)
+}
+
+func TestCpuPowerPowercapPreferredOverMsr(t *testing.T) {
+	_, src := twoSocketMsr(t)
+	root := t.TempDir()
+	writeRaplDomain(t, filepath.Join(root, "intel-rapl:0"), "package-0", 1, 100)
+	r := newCpuPowerReaderFrom([]string{root}, src)
+	require.NotNil(t, r)
+	require.Len(t, r.domains, 1)
+	assert.Equal(t, "package-0", r.domains[0].name)
+}
+
+func TestCpuPowerMsrUnavailable(t *testing.T) {
+	// unreadable registers (no /dev/cpu, no permission): no reader at all
+	_, src := twoSocketMsr(t)
+	src.read = (&fakeMsr{fail: true}).read
+	assert.Nil(t, newCpuPowerReaderFrom(nil, src))
+	assert.Nil(t, newCpuPowerReaderFrom(nil, msrSource{}))
+
+	// one socket unreadable: no partial sum
+	f, src := twoSocketMsr(t)
+	delete(f.regs, [2]uint64{2, msrPkgEnergyStatus})
+	assert.Nil(t, newCpuPowerReaderFrom(nil, src))
+}
+
+func TestCpuPowerMsrReadFailsLaterDegradesQuietly(t *testing.T) {
+	f, src := twoSocketMsr(t)
+	r := newCpuPowerReaderFrom(nil, src)
+	require.NotNil(t, r)
+	fakeClock(r)
+	f.fail = true
+	for i := 0; i < 3; i++ {
+		_, ok := r.read(60000)
+		assert.False(t, ok)
+	}
+	assert.True(t, r.warned)
+}
+
+func TestReadMsrDev(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "0"), 0o755))
+	buf := make([]byte, msrPkgEnergyStatus+8)
+	copy(buf[msrPkgEnergyStatus:], []byte{0x78, 0x56, 0x34, 0x12, 0, 0, 0, 0})
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "0", "msr"), buf, 0o644))
+	v, err := readMsrDev(dir)(0, msrPkgEnergyStatus)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0x12345678), v)
+	_, err = readMsrDev(dir)(5, msrPkgEnergyStatus)
+	assert.Error(t, err)
+}
