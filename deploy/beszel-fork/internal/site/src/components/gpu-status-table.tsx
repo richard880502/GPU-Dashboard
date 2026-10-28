@@ -327,7 +327,7 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 					<div className="w-32 shrink-0 lg:order-1 lg:w-auto">
 						<StatusBadge availability={row.availability} />
 					</div>
-					<div className="w-20 shrink-0 leading-tight lg:order-2 lg:w-auto">
+					<div className="w-20 shrink-0 text-center leading-tight lg:order-2 lg:w-auto">
 						<div className="text-[11px] text-slate-500 dark:text-neutral-400">{t`Free VRAM`}</div>
 						<div
 							className={cn(
