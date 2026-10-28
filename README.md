@@ -31,7 +31,7 @@ The home page lists every server with one card per GPU, aligned in columns so ca
 - **State** (dot and word): *in use* (utilization >= 5% in the last 2 minutes), *held* (idle but processes or memory are allocated, e.g. a model server waiting for requests), *idle* (free), *offline* (system down or no sample for 3 minutes).
 - **Free VRAM** next to the state, in GB. Cards differ in size (24 GB RTX 3090 / 4090, ~122 GB GB10), so the amount left decides whether a job fits. Server rows show the largest free VRAM of a single GPU.
 - **Memory** and **Utilization** bars. Memory turns amber from 70% and red from 90%; utilization from 50% and 85%.
-- **Temperature** (green below 60 °C, amber below 80 °C, red above) and **power**. Fan speed and power limit are not collected by the agent.
+- **Temperature** (green below 60 °C, amber below 80 °C, red above), **fan speed** (%) and **power** next to its limit (`280W / 450W`; amber from 90% of the limit, red at or above it). The agent reads fan speed and power limit with `nvidia-smi` (or NVML) (agents newer than v2.10.1). A card that reports none of them (no fan, datacenter cards, `[N/A]`) simply shows no fan or limit; a fan at 0% (zero-fan mode) is shown as 0%. Hosts still on an older agent show power without a limit and no fan.
 - Click a card to open the GPU's process list (PID, user, container, ports, VRAM, utilization).
 
 ## Current deployment

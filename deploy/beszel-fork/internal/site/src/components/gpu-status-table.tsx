@@ -17,6 +17,7 @@ import {
 	ChevronRightIcon,
 	ChevronsDownUpIcon,
 	ChevronsUpDownIcon,
+	FanIcon,
 	GaugeIcon,
 	MemoryStickIcon,
 	ThermometerIcon,
@@ -92,6 +93,8 @@ interface GpuEntry {
 	p?: number
 	t?: number
 	procs?: GPUProcess[]
+	fan?: number
+	pl?: number
 }
 
 interface GpuRow {
@@ -104,6 +107,10 @@ interface GpuRow {
 	memTotal: number
 	temp?: number
 	power?: number
+	/** fan speed (%), undefined when the card reports none (0 is a real reading) */
+	fan?: number
+	/** power limit (W) */
+	powerLimit?: number
 	procs: GPUProcess[]
 	/** epoch ms of this GPU's newest sample */
 	at: number
@@ -168,6 +175,12 @@ function groupRows(rows: GpuRow[], systems: Record<string, { name: string; statu
 // nearly full. Memory fills up sooner than it hurts, so it warns later.
 function barColor(value: number, warn: number, crit: number) {
 	return value >= crit ? "bg-red-500" : value >= warn ? "bg-amber-500" : "bg-blue-500"
+}
+
+// Power draw next to its limit: amber from 90% of the limit, red at or above it
+function powerColor(power: number, limit?: number) {
+	if (!limit) return ""
+	return power >= limit ? "text-red-500" : power >= limit * 0.9 ? "text-amber-500" : ""
 }
 
 function tempColor(temp: number) {
@@ -340,10 +353,19 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 									{row.temp.toFixed(0)}°C
 								</span>
 							)}
+							{row.fan !== undefined && (
+								<span className="inline-flex items-center gap-0.5" title={t`Fan speed`}>
+									<FanIcon className="size-3" aria-hidden="true" />
+									{row.fan.toFixed(0)}%
+								</span>
+							)}
 							{row.power !== undefined && (
-								<span className="inline-flex items-center gap-0.5" title="Power">
+								<span
+									className={cn("inline-flex items-center gap-0.5", powerColor(row.power, row.powerLimit))}
+									title={row.powerLimit ? t`Power / limit` : "Power"}
+								>
 									<ZapIcon className="size-3" aria-hidden="true" />
-									{row.power.toFixed(0)}W
+									{row.power.toFixed(0)}W{row.powerLimit ? ` / ${row.powerLimit.toFixed(0)}W` : ""}
 								</span>
 							)}
 							<span>
@@ -417,6 +439,8 @@ async function fetchGpuRows(): Promise<GpuRow[]> {
 				memTotal: gpu.mt ?? 0,
 				temp: gpu.t,
 				power: gpu.p,
+				fan: gpu.fan,
+				powerLimit: gpu.pl,
 				procs: gpu.procs ?? [],
 				at,
 				busyAt: busyAtByGpu.get(rowKey({ systemId, index })) ?? 0,

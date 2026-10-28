@@ -899,3 +899,31 @@ func TestAverageSystemStatsSlice_BtrfsDisplayName(t *testing.T) {
 	assert.Equal(t, "after", result.ZfsPools["b:uuid"].DisplayName)
 	assert.Equal(t, float64(15), result.ZfsPools["b:uuid"].Used)
 }
+
+// gpu-monitoring fork: fan speed averages over the samples that reported one,
+// power limit keeps the largest value, and a GPU that never reported either
+// stays without them (nil, not 0).
+func TestAverageSystemStatsSlice_GPUFanAndPowerLimit(t *testing.T) {
+	f := func(v float64) *float64 { return &v }
+	gpu := func(fan, limit *float64) map[string]system.GPUData {
+		return map[string]system.GPUData{
+			"fan":  {Name: "RTX 4090", Usage: 10, FanSpeed: fan, PowerLimit: limit},
+			"none": {Name: "H100", Usage: 10},
+		}
+	}
+	input := []system.Stats{
+		{GPUData: gpu(f(40), f(300))},
+		{GPUData: gpu(f(60), f(350))},
+		{GPUData: gpu(nil, nil)}, // one sample without a reading is not counted as 0
+		{GPUData: gpu(f(0), f(350))},
+	}
+
+	result := records.AverageSystemStatsSlice(input)
+
+	require.NotNil(t, result.GPUData["fan"].FanSpeed)
+	assert.InDelta(t, 33.33, *result.GPUData["fan"].FanSpeed, 0.01) // (40+60+0)/3
+	require.NotNil(t, result.GPUData["fan"].PowerLimit)
+	assert.Equal(t, 350.0, *result.GPUData["fan"].PowerLimit)
+	assert.Nil(t, result.GPUData["none"].FanSpeed)
+	assert.Nil(t, result.GPUData["none"].PowerLimit)
+}

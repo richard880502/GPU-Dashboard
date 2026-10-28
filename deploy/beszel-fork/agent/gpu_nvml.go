@@ -72,8 +72,12 @@ var (
 	nvmlDeviceGetTemperature      func(device nvmlDevice, sensorType int, temp *uint32) nvmlReturn
 	nvmlDeviceGetPowerUsage       func(device nvmlDevice, power *uint32) nvmlReturn
 	nvmlDeviceGetPciInfo          func(device nvmlDevice, pci *nvmlPciInfo) nvmlReturn
-	nvmlDeviceGetSamples          func(device nvmlDevice, sampleType int, lastSeenTimeStamp uint64, sampleValType *int32, sampleCount *uint32, samples *nvmlSample) nvmlReturn
-	nvmlErrorString               func(result nvmlReturn) string
+	// fork: optional (nil when the library lacks them), fan speed in percent
+	// and the power management limit in milliwatts
+	nvmlDeviceGetFanSpeed             func(device nvmlDevice, speed *uint32) nvmlReturn
+	nvmlDeviceGetPowerManagementLimit func(device nvmlDevice, limit *uint32) nvmlReturn
+	nvmlDeviceGetSamples              func(device nvmlDevice, sampleType int, lastSeenTimeStamp uint64, sampleValType *int32, sampleCount *uint32, samples *nvmlSample) nvmlReturn
+	nvmlErrorString                   func(result nvmlReturn) string
 )
 
 type nvmlCollector struct {
@@ -116,6 +120,12 @@ func (c *nvmlCollector) init() error {
 	purego.RegisterLibFunc(&nvmlErrorString, lib, "nvmlErrorString")
 	if hasSymbol(lib, "nvmlDeviceGetSamples") {
 		purego.RegisterLibFunc(&nvmlDeviceGetSamples, lib, "nvmlDeviceGetSamples")
+	}
+	if hasSymbol(lib, "nvmlDeviceGetFanSpeed") {
+		purego.RegisterLibFunc(&nvmlDeviceGetFanSpeed, lib, "nvmlDeviceGetFanSpeed")
+	}
+	if hasSymbol(lib, "nvmlDeviceGetPowerManagementLimit") {
+		purego.RegisterLibFunc(&nvmlDeviceGetPowerManagementLimit, lib, "nvmlDeviceGetPowerManagementLimit")
 	}
 
 	if ret := nvmlInit(); ret != nvmlReturn(nvmlSuccess) {
@@ -248,6 +258,24 @@ func (c *nvmlCollector) collect() {
 			// Some GPUs / drivers (e.g. RTX 4060 on 580.x) report power.draw as N/A
 			// but still expose the driver's power sample buffer
 			powerWatts = c.powerFromSamples(i, device)
+		}
+
+		// fork: fan speed and power limit; nil when unsupported (no fan, vGPU,
+		// unified-memory chips) so the UI can leave them out instead of showing 0
+		gpu.FanSpeed, gpu.PowerLimit = nil, nil
+		if nvmlDeviceGetFanSpeed != nil {
+			var fan uint32
+			if ret := nvmlDeviceGetFanSpeed(device, &fan); ret == nvmlReturn(nvmlSuccess) {
+				v := float64(fan)
+				gpu.FanSpeed = &v
+			}
+		}
+		if nvmlDeviceGetPowerManagementLimit != nil {
+			var limit uint32
+			if ret := nvmlDeviceGetPowerManagementLimit(device, &limit); ret == nvmlReturn(nvmlSuccess) && limit > 0 {
+				v := float64(limit) / 1000.0
+				gpu.PowerLimit = &v
+			}
 		}
 
 		gpu.Temperature = float64(temp)

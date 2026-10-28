@@ -2842,3 +2842,11 @@ msgstr "{free} / {total} 空閒"
 msgctxt "GPU card"
 msgid "Utilization"
 msgstr "利用率"
+
+#. gpu-monitoring fork
+msgid "Fan speed"
+msgstr "風扇轉速"
+
+#. gpu-monitoring fork
+msgid "Power / limit"
+msgstr "功耗 / 上限"
