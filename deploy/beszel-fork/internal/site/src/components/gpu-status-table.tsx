@@ -216,7 +216,8 @@ function StatusBadge({ availability, className }: { availability: GpuAvailabilit
 }
 
 // A thin progress bar: role=progressbar for assistive tech, the width eases
-// between refreshes unless the user asked for reduced motion.
+// between refreshes unless the user asked for reduced motion. The track uses
+// foreground/10 so it stays visible on the (darker) panel in both themes.
 function Bar({ value, label, color }: { value: number; label: string; color: string }) {
 	const pct = Math.min(100, Math.max(0, value))
 	return (
@@ -226,7 +227,7 @@ function Bar({ value, label, color }: { value: number; label: string; color: str
 			aria-valuemin={0}
 			aria-valuemax={100}
 			aria-valuenow={Math.round(pct)}
-			className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+			className="mt-1.5 h-1 overflow-hidden rounded-full bg-foreground/10"
 		>
 			<div
 				className={cn("h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none", color)}
@@ -236,36 +237,47 @@ function Bar({ value, label, color }: { value: number; label: string; color: str
 	)
 }
 
+// The inset panel: one step darker than the card around it (muted on the
+// light theme, background on the dark one), label and value on one line with
+// the bar right under them.
 function Panel({
 	Icon,
 	label,
 	value,
-	footer,
+	valueTitle,
+	className,
 	children,
 }: {
 	Icon: LucideIcon
 	label: string
 	value: string
-	footer?: ReactNode
+	valueTitle?: string
+	className?: string
 	children: ReactNode
 }) {
 	return (
-		<div className="min-w-0 rounded-xl border bg-background/60 px-3 py-2.5">
-			<div className="flex items-center justify-between gap-2 text-sm">
-				<span className="inline-flex items-center gap-1.5 text-muted-foreground">
-					<Icon className="size-3.5" aria-hidden="true" />
+		<div className={cn("min-w-0 rounded-lg border bg-muted/60 px-2.5 py-1.5 dark:bg-background/70", className)}>
+			<div className="flex items-center justify-between gap-2 text-xs">
+				<span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-muted-foreground">
+					<Icon className="size-3" aria-hidden="true" />
 					{label}
 				</span>
-				<span className="font-medium tabular-nums">{value}</span>
+				<span className="whitespace-nowrap font-medium tabular-nums" title={valueTitle}>
+					{value}
+				</span>
 			</div>
 			{children}
-			{footer && <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">{footer}</div>}
 		</div>
 	)
 }
 
-// One GPU as a card: state + readings in the header, memory and utilization
-// as two bars below. Clicking it opens the processes panel.
+// One GPU as a slim card in a single-column list. From lg up it is one row
+// with a fixed column template, so every card's memory bar, utilization bar and
+// free-VRAM figure line up with the cards above and below it; below lg it
+// folds into two lines (identity, then the two panels side by side).
+// Clicking it opens the processes panel.
+const CARD_COLUMNS = "lg:grid-cols-[7.5rem_minmax(11rem,1.3fr)_minmax(13rem,1.5fr)_minmax(10rem,1fr)_5.5rem_1rem]"
+
 function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOpen: () => void }) {
 	const free = row.availability === "free"
 	const memPct = row.memTotal ? (row.memUsed / row.memTotal) * 100 : 0
@@ -282,67 +294,68 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 				}
 			}}
 			className={cn(
-				"cursor-pointer rounded-2xl border bg-card/60 p-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-4",
+				"cursor-pointer rounded-xl border bg-card px-3 py-2 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 				free && "border-emerald-500/50 bg-emerald-500/[0.06] hover:bg-emerald-500/10",
 				offline && "opacity-60"
 			)}
 		>
-			<div className="flex items-center gap-3">
-				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-					<span className="font-semibold tabular-nums">GPU {row.index}</span>
-					<span className="min-w-0 truncate text-muted-foreground" title={row.name}>
-						{row.name}
-					</span>
-					{row.temp !== undefined && (
-						<span className={cn("inline-flex items-center gap-1 text-sm tabular-nums", tempColor(row.temp))} title={t`Temperature`}>
-							<ThermometerIcon className="size-3.5" aria-hidden="true" />
-							{row.temp.toFixed(0)}°C
-						</span>
-					)}
-					{row.power !== undefined && (
-						<span className="inline-flex items-center gap-1 text-sm tabular-nums text-muted-foreground" title="Power">
-							<ZapIcon className="size-3.5" aria-hidden="true" />
-							{row.power.toFixed(0)}W
-						</span>
-					)}
-				</div>
-				<StatusBadge availability={row.availability} />
-				<ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-			</div>
-			<div className="mt-3 grid gap-3 sm:grid-cols-2">
-				<Panel
-					Icon={MemoryStickIcon}
-					label={t`Memory`}
-					value={`${decimalString(row.memUsed, 0)}MiB/${decimalString(row.memTotal, 0)}MiB`}
-					footer={
-						<>
-							<span>{t`Free VRAM`}</span>
-							<span
-								className={cn(
-									"tabular-nums",
-									free && "font-semibold text-emerald-600 dark:text-emerald-400"
-								)}
-							>
-								{row.memTotal && row.availability !== "offline" ? `${toGB(freeMem(row))} GB` : "-"}
+			<div className={cn("flex flex-col gap-2 lg:grid lg:items-center lg:gap-x-3", CARD_COLUMNS)}>
+				<div className="flex items-center gap-3 lg:contents">
+					{/* wide: its own column; narrow: folded into the readings line below */}
+					<StatusBadge availability={row.availability} className="hidden lg:order-1 lg:inline-flex" />
+					<div className="min-w-0 flex-1 lg:order-2 lg:flex-none">
+						<div className="flex min-w-0 items-baseline gap-2">
+							<span className="shrink-0 whitespace-nowrap font-semibold tabular-nums">GPU {row.index}</span>
+							<span className="min-w-0 truncate text-sm text-muted-foreground" title={row.name}>
+								{row.name}
 							</span>
-						</>
-					}
-				>
-					<Bar value={memPct} label={t`Memory`} color={barColor(memPct, 70, 90)} />
-				</Panel>
-				<Panel
-					Icon={GaugeIcon}
-					label={t({ message: "Utilization", context: "GPU card" })}
-					value={`${decimalString(row.util, row.util >= 10 ? 0 : 1)}%`}
-					footer={
-						<>
-							<span>{t`Processes`}</span>
-							<span className="tabular-nums">{row.procs.length}</span>
-						</>
-					}
-				>
-					<Bar value={row.util} label={t({ message: "Utilization", context: "GPU card" })} color={barColor(row.util, 50, 85)} />
-				</Panel>
+						</div>
+						<div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs tabular-nums text-muted-foreground">
+							<StatusBadge availability={row.availability} className="lg:hidden" />
+							{row.temp !== undefined && (
+								<span className={cn("inline-flex items-center gap-0.5", tempColor(row.temp))} title={t`Temperature`}>
+									<ThermometerIcon className="size-3" aria-hidden="true" />
+									{row.temp.toFixed(0)}°C
+								</span>
+							)}
+							{row.power !== undefined && (
+								<span className="inline-flex items-center gap-0.5" title="Power">
+									<ZapIcon className="size-3" aria-hidden="true" />
+									{row.power.toFixed(0)}W
+								</span>
+							)}
+							<span>
+								{row.procs.length} {t`Processes`}
+							</span>
+						</div>
+					</div>
+					<div className="shrink-0 text-right leading-tight lg:order-5">
+						<div className="text-[11px] text-muted-foreground">{t`Free VRAM`}</div>
+						<div className={cn("text-sm tabular-nums", free && "font-semibold text-emerald-600 dark:text-emerald-400")}>
+							{row.memTotal && row.availability !== "offline" ? `${toGB(freeMem(row))} GB` : "-"}
+						</div>
+					</div>
+					<ChevronRightIcon className="size-4 shrink-0 text-muted-foreground lg:order-6" aria-hidden="true" />
+				</div>
+				<div className="grid grid-cols-2 gap-2 lg:contents">
+					<Panel
+						Icon={MemoryStickIcon}
+						label={t`Memory`}
+						value={`${toGB(row.memUsed)}/${toGB(row.memTotal)} GB`}
+						valueTitle={`${decimalString(row.memUsed, 0)}MiB / ${decimalString(row.memTotal, 0)}MiB`}
+						className="lg:order-3"
+					>
+						<Bar value={memPct} label={t`Memory`} color={barColor(memPct, 70, 90)} />
+					</Panel>
+					<Panel
+						Icon={GaugeIcon}
+						label={t({ message: "Utilization", context: "GPU card" })}
+						value={`${decimalString(row.util, row.util >= 10 ? 0 : 1)}%`}
+						className="lg:order-4"
+					>
+						<Bar value={row.util} label={t({ message: "Utilization", context: "GPU card" })} color={barColor(row.util, 50, 85)} />
+					</Panel>
+				</div>
 			</div>
 		</div>
 	)
@@ -750,7 +763,7 @@ export function GpuStatusTable() {
 								</span>
 							</div>
 							{isOpen && (
-								<div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
+								<div className="flex flex-col gap-2">
 									{group.gpus.map((row) => {
 										const key = `${row.systemId}-${row.index}`
 										return (
