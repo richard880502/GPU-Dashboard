@@ -15,10 +15,24 @@ This repository contains the Beszel fork, GPU exporters, Docker Compose files, a
 - PID → Linux user attribution
 - PID → Docker container attribution
 - PID → Kubernetes / CRI container and pod attribution
+- **GPU Status by Server**: one slim card per GPU, so free GPUs and their free VRAM are visible at a glance
 - Per-GPU process drill-down in the Beszel UI (PID, user, container, the container's published ports, VRAM, utilization)
 - SMART disk monitoring through the Beszel agent
 - Optional Slack live GPU dashboard
 - Docker Compose based deployment with published GHCR images
+
+## GPU Status by Server
+
+![GPU Status by Server](docs/images/gpu-status-dark.png#gh-dark-mode-only)
+![GPU Status by Server](docs/images/gpu-status-light.png#gh-light-mode-only)
+
+The home page lists every server with one card per GPU, aligned in columns so cards can be compared at a glance:
+
+- **State** (dot and word): *in use* (utilization >= 5% in the last 2 minutes), *held* (idle but processes or memory are allocated, e.g. a model server waiting for requests), *idle* (free), *offline* (system down or no sample for 3 minutes).
+- **Free VRAM** next to the state, in GB. Cards differ in size (24 GB RTX 3090 / 4090, ~122 GB GB10), so the amount left decides whether a job fits. Server rows show the largest free VRAM of a single GPU.
+- **Memory** and **Utilization** bars. Memory turns amber from 70% and red from 90%; utilization from 50% and 85%.
+- **Temperature** (green below 60 °C, amber below 80 °C, red above) and **power**. Fan speed and power limit are not collected by the agent.
+- Click a card to open the GPU's process list (PID, user, container, ports, VRAM, utilization).
 
 ## Current deployment
 
