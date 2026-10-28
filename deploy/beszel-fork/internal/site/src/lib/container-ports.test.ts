@@ -27,3 +27,21 @@ test("more than three fold into a count, the tooltip text keeps all", () => {
 		full: "1→1\n2→2\n3→3\n4→4\n5→5",
 	})
 })
+
+test("listening ports of a host-network container are told apart from mappings", () => {
+	expect(parsePortMap("L:8000, 8265, 10002-10050")).toEqual({
+		kind: "listen",
+		shown: ["8000", "8265", "10002-10050"],
+		hiddenCount: 0,
+		full: "8000\n8265\n10002-10050",
+	})
+	const many = parsePortMap("L:1, 2, 3, 4, 5")
+	expect(many).toEqual({
+		kind: "listen",
+		shown: ["1", "2", "3"],
+		hiddenCount: 2,
+		full: "1\n2\n3\n4\n5",
+	})
+	expect(parsePortMap("L:")).toEqual({ kind: "none" })
+	expect(parsePortMap(" L: , ")).toEqual({ kind: "none" })
+})

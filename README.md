@@ -918,9 +918,31 @@ After upgrading a node, gpu-process-exporter can be removed:
 The GPU panel's **Ports** column shows the host ports a container publishes,
 as `host→container` (`18000→8000`, `127.0.0.1:9000→9000`, `53→53/udp`;
 consecutive ports are merged into a range, more than three fold into `+N`,
-hover for the full list). `host network` means the container listens on the
-host's ports directly and has no mapping to list; `—` is a host or Kubernetes
-process, or a node whose agent is older than this column.
+hover for the full list).
+
+A `network_mode: host` container has no mapping (Docker publishes nothing for
+it), so the agent reads the ports it actually listens on instead and shows them
+under a small `listen` tag (`listen 8000, 8265`; vLLM's API port, for example).
+That works from the host's `/proc` (the same `--pid=host` + `HOST_PROC=/proc`
+as the process attribution above):
+
+- only TCP sockets in the LISTEN state that belong to the container's own
+  processes (matched by socket inode, since a host-network namespace lists the
+  whole machine's sockets), bound to a non-loopback address, so a service that
+  listens on `127.0.0.1` only isn't shown;
+- consecutive ports become a range, ports below 32768 come first (higher ones
+  are normally a runtime's internal workers), at most 20 entries are kept;
+- only containers that currently run GPU processes are looked at, refreshed
+  every 30 seconds;
+- the agent has to be allowed to read the container's `/proc/<pid>/fd`.
+  That works as root when the container's processes have no more capabilities
+  than the agent. For a privileged container (or one with extra capabilities)
+  add `SYS_PTRACE` to the agent's `cap_add` (`--cap-add SYS_PTRACE`); the
+  agent logs `Listening ports: can't read the fds ...` once when it can't.
+
+`host network` means the container is on the host network but nothing external
+is listening (or it can't be read); `—` is a host or Kubernetes process, or a
+node whose agent is older than this column.
 
 # Why the Beszel fork exists
 

@@ -111,3 +111,59 @@ func portRange(first, last uint16) string {
 	}
 	return fmt.Sprintf("%d-%d", first, last)
 }
+
+const (
+	// listening ports of a host-network container: the ranges kept, and the
+	// start of Linux's default ephemeral range (32768-60999), whose ports are
+	// normally a runtime's internal workers rather than the service
+	maxListenEntries   = 20
+	ephemeralPortStart = 32768
+)
+
+// formatListenPorts formats the external TCP ports a host-network container
+// listens on as "L:8000, 8265, 10002-10050": the "L:" prefix tells the UI
+// these are listening ports, not published mappings. Consecutive ports
+// become one range; ports below the ephemeral range come first (they are the
+// ones people look for), at most maxListenEntries entries are kept. "" for
+// no ports.
+func formatListenPorts(ports []uint16) string {
+	set := make(map[uint16]struct{}, len(ports))
+	for _, p := range ports {
+		if p != 0 {
+			set[p] = struct{}{}
+		}
+	}
+	if len(set) == 0 {
+		return ""
+	}
+	low := make([]int, 0, len(set))
+	high := make([]int, 0)
+	for p := range set {
+		if p < ephemeralPortStart {
+			low = append(low, int(p))
+		} else {
+			high = append(high, int(p))
+		}
+	}
+	sort.Ints(low)
+	sort.Ints(high)
+	entries := append(portRanges(low), portRanges(high)...)
+	if len(entries) > maxListenEntries {
+		entries = entries[:maxListenEntries]
+	}
+	return "L:" + strings.Join(entries, ", ")
+}
+
+// portRanges turns sorted unique ports into "a" / "a-b" entries.
+func portRanges(ports []int) []string {
+	var out []string
+	for i := 0; i < len(ports); {
+		j := i
+		for j+1 < len(ports) && ports[j+1] == ports[j]+1 {
+			j++
+		}
+		out = append(out, portRange(uint16(ports[i]), uint16(ports[j])))
+		i = j + 1
+	}
+	return out
+}

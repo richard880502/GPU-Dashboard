@@ -2789,3 +2789,13 @@ msgstr "可用 VRAM"
 #. gpu-monitoring fork
 msgid "Most free VRAM on a single GPU"
 msgstr "單張 GPU 最多可用的 VRAM"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "listen"
+msgstr "監聽"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Listening on the host network"
+msgstr "host 網路上監聽的 port"

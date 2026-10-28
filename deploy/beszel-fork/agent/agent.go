@@ -264,7 +264,9 @@ func (a *Agent) gatherStats(options common.DataRequestOptions) *system.CombinedD
 		data.Containers = append(data.Containers, a.criCollector.collect()...)
 	}
 	if data.Containers != nil {
-		applyContainerGPUStats(data.Containers, a.gpuProcessContainers())
+		containerByPID := a.gpuProcessContainers()
+		applyContainerGPUStats(data.Containers, containerByPID)
+		a.applyListenPorts(data.Containers, containerByPID)
 		slog.Debug("Containers", "data", data.Containers)
 	}
 

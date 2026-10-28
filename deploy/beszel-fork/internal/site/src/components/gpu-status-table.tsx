@@ -276,9 +276,10 @@ async function fetchGpuRows(): Promise<GpuRow[]> {
 	return rows
 }
 
-// Published ports of the container behind a GPU process ("host→container").
-// host-network containers have no mapping to list, and host / k8s processes or
-// agents older than the portMap field have no data: those show a dash.
+// Ports of the container behind a GPU process: the published mapping
+// ("host→container"), or for a host-network container the ports it listens on
+// (Docker has no mapping to report there). Host / k8s processes or agents older
+// than the portMap field have no data: those show a dash.
 function ProcessPorts({ value }: { value?: string }) {
 	const view = parsePortMap(value)
 	if (view.kind === "none") {
@@ -287,8 +288,17 @@ function ProcessPorts({ value }: { value?: string }) {
 	if (view.kind === "host") {
 		return <span className="text-muted-foreground">host network</span>
 	}
+	const listening = view.kind === "listen"
 	return (
-		<span className="tabular-nums" title={view.full}>
+		<span
+			className="tabular-nums"
+			title={listening ? `${t({ message: "Listening on the host network", context: "Container ports" })}\n${view.full}` : view.full}
+		>
+			{listening && (
+				<span className="me-1 rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">
+					{t({ message: "listen", context: "Container ports" })}
+				</span>
+			)}
 			{view.shown.join(", ")}
 			{view.hiddenCount > 0 && <span className="text-muted-foreground"> +{view.hiddenCount}</span>}
 		</span>
