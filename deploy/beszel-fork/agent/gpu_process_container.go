@@ -131,6 +131,47 @@ func applyContainerGPUStats(containers []*container.Stats, containerByPID map[pi
 	}
 }
 
+// applyListenPorts replaces "host" in the PortMap of host-network containers
+// that have GPU processes with the TCP ports they actually listen on
+// ("L:8000, 8265") and, for a Ray node, its role ("R:head;L:8287"), read from
+// the host's /proc. Docker has no mapping to
+// report for these, so without it the panel can't say which port a vLLM API
+// answers on. Without the host's /proc (or if nothing external is listening)
+// the container stays "host".
+func (a *Agent) applyListenPorts(containers []*container.Stats, containerByPID map[pidIndex]pidContainer) {
+	if a.gpuAttribution == nil || containerByPID == nil {
+		return
+	}
+	withGPU := make(map[string]struct{}, len(containerByPID))
+	for _, pc := range containerByPID {
+		withGPU[pc.container] = struct{}{}
+	}
+	var targets []*container.Stats
+	var names []string
+	for _, c := range containers {
+		// container stats are reused across polls, so an earlier "L:..." is
+		// re-evaluated rather than trusted
+		if !isListenPortMap(c.PortMap) {
+			continue
+		}
+		if _, ok := withGPU[c.Name]; !ok {
+			continue
+		}
+		targets = append(targets, c)
+		names = append(names, c.Name)
+	}
+	if len(targets) == 0 {
+		return
+	}
+	listening := a.gpuAttribution.listenPorts(names)
+	for _, c := range targets {
+		c.PortMap = "host"
+		if text := formatContainerListen(listening[c.Name]); text != "" {
+			c.PortMap = text
+		}
+	}
+}
+
 // attachGPUProcesses fills in each GPU's Processes list (PID, container name
 // -- "host" if not containerized -- memory, and utilization), so the UI can
 // show what's actually running on a specific GPU when drilled into, not

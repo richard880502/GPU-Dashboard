@@ -396,6 +396,9 @@ export interface ContainerRecord extends RecordModel {
 	gpuMemPercent?: number
 	gpuUtilPercent?: number
 	gpuIndex?: string
+	/** published ports as "host→container" text, or "host" for host network;
+	 * empty for agents older than this field */
+	portMap?: string
 }
 
 // gpu-monitoring fork addition (not upstream): one row per system / GPU / day,

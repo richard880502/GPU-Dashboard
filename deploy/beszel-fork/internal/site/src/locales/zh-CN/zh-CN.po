@@ -2789,3 +2789,43 @@ msgstr "可用显存"
 #. gpu-monitoring fork
 msgid "Most free VRAM on a single GPU"
 msgstr "单张 GPU 最多可用的显存"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "listen"
+msgstr "监听"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Listening on the host network"
+msgstr "host 网络上监听的 port"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Ray head"
+msgstr "Ray 主节点"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Ray worker"
+msgstr "Ray 工作节点"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Ray head node"
+msgstr "Ray 主节点"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Ray worker node: the service ports are on the head node"
+msgstr "Ray 工作节点：服务 port 在主节点上"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Head node: {head}"
+msgstr "主节点：{head}"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Host ports only (older agent)"
+msgstr "仅宿主 port（旧版 agent）"

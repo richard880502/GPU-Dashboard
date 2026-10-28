@@ -67,6 +67,13 @@ type gpuAttributor struct {
 	cachedAt time.Time
 	users    map[uint32]string
 	usersAt  time.Time
+
+	// listening ports of host-network GPU containers (container_listen_linux.go)
+	listenMu     sync.Mutex
+	listenCached map[string]containerListen
+	listenKey    string
+	listenAt     time.Time
+	listenWarned bool
 }
 
 // newGpuAttributor returns nil unless HOST_PROC points at a readable host

@@ -15,7 +15,7 @@ This repository contains the Beszel fork, GPU exporters, Docker Compose files, a
 - PID → Linux user attribution
 - PID → Docker container attribution
 - PID → Kubernetes / CRI container and pod attribution
-- Per-GPU process drill-down in the Beszel UI
+- Per-GPU process drill-down in the Beszel UI (PID, user, container, the container's published ports, VRAM, utilization)
 - SMART disk monitoring through the Beszel agent
 - Optional Slack live GPU dashboard
 - Docker Compose based deployment with published GHCR images
@@ -929,6 +929,52 @@ the Docker API or `crictl` (`k8s:<namespace>/<pod>/<container>`), or
 `deploy/standalone/upgrade-agent.py` and the compose templates set all three.
 After upgrading a node, gpu-process-exporter can be removed:
 `docker rm -f gpu-process-exporter`.
+
+The GPU panel's **Ports** column shows the host ports a container publishes,
+as `host→container` (`18000→8000`, `127.0.0.1:9000→9000`, `53→53/udp`;
+consecutive ports are merged into a range, more than three fold into `+N`,
+hover for the full list).
+
+A `network_mode: host` container has no mapping (Docker publishes nothing for
+it), so the agent reads the ports it actually listens on instead and shows them
+under a small `listen` tag (`listen 8000, 8265`; vLLM's API port, for example).
+That works from the host's `/proc` (the same `--pid=host` + `HOST_PROC=/proc`
+as the process attribution above):
+
+- only TCP sockets in the LISTEN state that belong to the container's own
+  processes (matched by socket inode, since a host-network namespace lists the
+  whole machine's sockets), bound to a non-loopback address, so a service that
+  listens on `127.0.0.1` only isn't shown;
+- sockets held only by **Ray runtime processes** are left out (raylet, the
+  `ray::` workers and actors, the dashboard and its agents, the GCS, log
+  monitor...; recognized from the process cmdline), so a Ray container shows
+  its service port and not the dozens of internal ones. Ray Serve's own actors
+  (`ray::ServeReplica...`, `ray::ProxyActor`) are kept, they are the service.
+  A process whose cmdline can't be read is treated as an ordinary one;
+- consecutive ports become a range, ports below 32768 come first (higher ones
+  are normally a runtime's internal workers), at most 20 entries are kept;
+- only containers that currently run GPU processes are looked at, refreshed
+  every 30 seconds;
+- the agent has to be allowed to read the container's `/proc/<pid>/fd`.
+  That works as root when the container's processes have no more capabilities
+  than the agent. For a privileged container (or one with extra capabilities)
+  add `SYS_PTRACE` to the agent's `cap_add` (`--cap-add SYS_PTRACE`); the
+  agent logs `Listening ports: can't read the fds ...` once when it can't.
+
+A container that runs a Ray node gets a **Ray head** or **Ray worker** badge:
+head = it runs something only the head has (`gcs_server`, the dashboard,
+`ray start --head`); worker = it only joins a head (`raylet`,
+`ray start --address=...`). A worker has no service port of its own: the badge
+is followed by `→ <head host>` (from `--address` / the raylet's
+`--gcs-address`) when known, and the tooltip says the service ports are on the
+head node. In a vLLM-on-Ray cluster that is where `vllm serve --port N` runs.
+The agent's portMap text for these is `R:head;L:8287` / `R:worker=10.0.0.1`.
+
+`host network` means the container is on the host network but nothing external
+is listening (or it can't be read). A node whose agent is older than this
+column falls back to the host ports of the Containers page, shown muted and
+marked "host ports only (older agent)"; `—` is a host or Kubernetes process
+with neither.
 
 # Why the Beszel fork exists
 

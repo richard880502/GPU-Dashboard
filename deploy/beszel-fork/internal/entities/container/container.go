@@ -14,21 +14,18 @@ type ApiInfo struct {
 		Status string
 		// FailingStreak int
 	}
-	Ports []struct {
-		// PrivatePort uint16
-		PublicPort uint16
-		IP         string
-		// Type        string
-	}
+	Ports []ApiPort
 	// ImageID string
 	// Command string
 	// Created int64
 	// SizeRw     int64 `json:",omitempty"`
 	// SizeRootFs int64 `json:",omitempty"`
-	// HostConfig struct {
-	// 	NetworkMode string            `json:",omitempty"`
-	// 	Annotations map[string]string `json:",omitempty"`
-	// }
+	// gpu-monitoring fork: only NetworkMode is read (host-network containers
+	// have no port mappings, see formatPortMap).
+	HostConfig struct {
+		NetworkMode string `json:",omitempty"`
+		// Annotations map[string]string `json:",omitempty"`
+	}
 	// NetworkSettings *SummaryNetworkSettings
 	// Mounts          []MountPoint
 
@@ -37,6 +34,17 @@ type ApiInfo struct {
 	Labels map[string]string `json:"-"`
 	// DisplayName is the name reported to the hub.
 	DisplayName string `json:"-"`
+}
+
+// ApiPort is one entry of the Ports array in /containers/json.
+// gpu-monitoring fork: this used to be an anonymous struct with only
+// PublicPort and IP; PrivatePort and Type were added for the port mapping
+// shown next to GPU processes (see Stats.PortMap).
+type ApiPort struct {
+	PrivatePort uint16
+	PublicPort  uint16
+	IP          string
+	Type        string
 }
 
 // Docker container resources from /containers/{id}/stats
@@ -210,6 +218,11 @@ type Stats struct {
 	// container's GPU-using PIDs runs on, so cluster-wide views can count
 	// distinct occupied GPUs instead of just distinct containers.
 	GpuIndex string `json:"gidx,omitzero" cbor:"104,keyasint,omitzero"`
+	// PortMap is the container's published ports as "host→container" text
+	// ("8000→8000, 9000-9003→9000-9003/udp"), or "host" for host-network
+	// containers, shown in the GPU process panel. Ports (above) keeps only the
+	// host side for the Containers page.
+	PortMap string `json:"-" cbor:"105,keyasint,omitzero"`
 	// PrevCpu     [2]uint64    `json:"-"`
 	CpuSystem    uint64       `json:"-"`
 	CpuContainer uint64       `json:"-"`

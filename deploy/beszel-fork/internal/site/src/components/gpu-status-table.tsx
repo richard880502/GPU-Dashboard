@@ -7,6 +7,7 @@ import { getPagePath } from "@nanostores/router"
 import { t } from "@lingui/core/macro"
 import { Trans } from "@lingui/react/macro"
 import { pb } from "@/lib/api"
+import { resolvePortMap, type RayInfo } from "@/lib/container-ports"
 import { $allSystemsById } from "@/lib/stores"
 import { MeterState, SystemStatus } from "@/lib/enums"
 import type { ContainerRecord, GPUProcess } from "@/types"
@@ -275,6 +276,82 @@ async function fetchGpuRows(): Promise<GpuRow[]> {
 	return rows
 }
 
+// Ports of the container behind a GPU process: the published mapping
+// ("host→container"), or for a host-network container the ports it listens on
+// (Docker has no mapping to report there), with a badge if it runs a Ray node.
+// Agents older than the portMap field only have the upstream host ports,
+// shown muted; host / k8s processes with neither show a dash.
+function RayBadge({ ray }: { ray: RayInfo }) {
+	return (
+		<span className="me-1 rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">
+			{ray.role === "head"
+				? t({ message: "Ray head", context: "Container ports" })
+				: t({ message: "Ray worker", context: "Container ports" })}
+		</span>
+	)
+}
+
+function ProcessPorts({ value, legacyPorts }: { value?: string; legacyPorts?: string }) {
+	const view = resolvePortMap(value, legacyPorts)
+	if (view.kind === "none") {
+		return <span className="text-muted-foreground">—</span>
+	}
+	if (view.kind === "host") {
+		return <span className="text-muted-foreground">host network</span>
+	}
+	if (view.kind === "ray") {
+		// a worker has no service of its own: the ports are on its head node
+		const { ray } = view
+		const head = ray.role === "worker" ? ray.head : undefined
+		const title =
+			ray.role === "worker"
+				? [
+						t({ message: "Ray worker node: the service ports are on the head node", context: "Container ports" }),
+						head ? t({ message: `Head node: ${head}`, context: "Container ports" }) : "",
+					]
+						.filter(Boolean)
+						.join("\n")
+				: t({ message: "Ray head node", context: "Container ports" })
+		return (
+			<span title={title}>
+				<RayBadge ray={ray} />
+				{head && <span className="text-muted-foreground tabular-nums">→ {head}</span>}
+			</span>
+		)
+	}
+	const more = view.hiddenCount > 0 && <span className="text-muted-foreground"> +{view.hiddenCount}</span>
+	if (view.kind === "legacy") {
+		return (
+			<span
+				className="tabular-nums text-muted-foreground"
+				title={`${t({ message: "Host ports only (older agent)", context: "Container ports" })}\n${view.full}`}
+			>
+				{view.shown.join(", ")}
+				{more}
+			</span>
+		)
+	}
+	const listening = view.kind === "listen"
+	return (
+		<span
+			className="tabular-nums"
+			title={listening ? `${t({ message: "Listening on the host network", context: "Container ports" })}\n${view.full}` : view.full}
+		>
+			{view.ray ? (
+				<RayBadge ray={view.ray} />
+			) : (
+				listening && (
+					<span className="me-1 rounded bg-muted px-1 py-0.5 text-xs text-muted-foreground">
+						{t({ message: "listen", context: "Container ports" })}
+					</span>
+				)
+			)}
+			{view.shown.join(", ")}
+			{more}
+		</span>
+	)
+}
+
 function GpuProcessesSheet({
 	row,
 	systemName,
@@ -288,6 +365,39 @@ function GpuProcessesSheet({
 	setOpen: (open: boolean) => void
 	onOpenContainer: (systemId: string, containerName: string) => void
 }) {
+	// container name -> published ports, read when the panel opens: the GPU
+	// process rows only carry the container's name. Ports rarely change, so
+	// there is no live subscription.
+	const [portMaps, setPortMaps] = useState<Record<string, { portMap: string; ports: string }>>({})
+	const systemId = row?.systemId
+	useEffect(() => {
+		if (!open || !systemId) {
+			return
+		}
+		let cancelled = false
+		pb.collection<Pick<ContainerRecord, "name" | "portMap" | "ports">>("containers")
+			.getFullList({
+				filter: pb.filter("system = {:system}", { system: systemId }),
+				fields: "name,portMap,ports",
+				// a recreated container keeps its name: the newest record wins below
+				sort: "updated",
+			})
+			.then((records) => {
+				if (cancelled) {
+					return
+				}
+				const byName: Record<string, { portMap: string; ports: string }> = {}
+				for (const record of records) {
+					byName[record.name] = { portMap: record.portMap ?? "", ports: record.ports ?? "" }
+				}
+				setPortMaps(byName)
+			})
+			.catch(() => !cancelled && setPortMaps({}))
+		return () => {
+			cancelled = true
+		}
+	}, [open, systemId])
+
 	return (
 		<Sheet open={open} onOpenChange={setOpen}>
 			<SheetContent className="w-full sm:max-w-160 p-2">
@@ -307,6 +417,7 @@ function GpuProcessesSheet({
 									<th className="font-normal py-2 pe-4">PID</th>
 									<th className="font-normal py-2 pe-4">User</th>
 									<th className="font-normal py-2 pe-4">Container</th>
+									<th className="font-normal py-2 pe-4">{t({ message: "Ports", context: "Container ports" })}</th>
 									<th className="font-normal py-2 pe-4">VRAM</th>
 									<th className="font-normal py-2 pe-4">VRAM %</th>
 									<th className="font-normal py-2 pe-4">Util %</th>
@@ -319,6 +430,9 @@ function GpuProcessesSheet({
 										<td className="py-2 pe-4">{proc.un ?? "-"}</td>
 										<td className="py-2 pe-4">
 											<ProcessContainerLabel value={proc.c} systemId={row.systemId} onOpenContainer={onOpenContainer} />
+										</td>
+										<td className="py-2 pe-4">
+											<ProcessPorts value={portMaps[proc.c]?.portMap} legacyPorts={portMaps[proc.c]?.ports} />
 										</td>
 										<td className="py-2 pe-4 tabular-nums">{proc.mu ? `${decimalString(proc.mu, 0)} MiB` : "-"}</td>
 										<td className="py-2 pe-4 tabular-nums">{proc.mp ? `${decimalString(proc.mp, 1)}%` : "0%"}</td>
