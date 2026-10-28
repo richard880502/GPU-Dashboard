@@ -1,7 +1,7 @@
 // gpu-monitoring fork addition (not upstream): a per-GPU status table for
 // the home page, mirroring this project's own Grafana "GPU Status by
 // Server" panel (one row per server+GPU, with Util/VRAM/Temp/Power).
-import { Fragment, useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { useStore } from "@nanostores/react"
 import { getPagePath } from "@nanostores/router"
 import { t } from "@lingui/core/macro"
@@ -9,20 +9,19 @@ import { Trans } from "@lingui/react/macro"
 import { pb } from "@/lib/api"
 import { resolvePortMap, type RayInfo } from "@/lib/container-ports"
 import { $allSystemsById } from "@/lib/stores"
-import { MeterState, SystemStatus } from "@/lib/enums"
+import { SystemStatus } from "@/lib/enums"
 import type { ContainerRecord, GPUProcess } from "@/types"
 import { cn, decimalString, getServerDotColor, useBrowserStorage } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import {
-	ActivityIcon,
 	ChevronRightIcon,
 	ChevronsDownUpIcon,
 	ChevronsUpDownIcon,
-	CircleCheckIcon,
-	CirclePauseIcon,
-	HashIcon,
+	GaugeIcon,
+	MemoryStickIcon,
+	ThermometerIcon,
 	type LucideIcon,
-	UnplugIcon,
+	ZapIcon,
 } from "lucide-react"
 import { GpuIcon } from "./ui/icons"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet"
@@ -165,30 +164,14 @@ function groupRows(rows: GpuRow[], systems: Record<string, { name: string; statu
 	return groups.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 }
 
-function getMeterState(value: number, warn = 65, crit = 90): MeterState {
-	return value >= crit ? MeterState.Crit : value >= warn ? MeterState.Warn : MeterState.Good
+// Bar fill by how full it is: calm blue, amber when getting high, red when
+// nearly full. Memory fills up sooner than it hurts, so it warns later.
+function barColor(value: number, warn: number, crit: number) {
+	return value >= crit ? "bg-red-500" : value >= warn ? "bg-amber-500" : "bg-sky-500"
 }
 
-// Warn/Crit slightly desaturated from Apple's pure systemYellow/systemRed
-// (100% saturation) so a long, high-value meter bar doesn't visually
-// outweigh the number next to it -- Good stays fully saturated since green
-// bars are rarely the ones running end-to-end across the row.
-const METER_COLORS = {
-	[MeterState.Good]: "bg-[#34c759] dark:bg-[#30d158]",
-	[MeterState.Warn]: "bg-[hsl(45,82%,48%)] dark:bg-[hsl(45,88%,52%)]",
-	[MeterState.Crit]: "bg-[hsl(4,82%,55%)] dark:bg-[hsl(4,85%,58%)]",
-} as const
-
-function Meter({ value }: { value: number }) {
-	const state = getMeterState(value)
-	return (
-		<div className="flex gap-2 items-center tabular-nums tracking-tight w-full min-w-0">
-			<span className="min-w-10 shrink-0">{decimalString(value, value >= 10 ? 1 : 2)}%</span>
-			<span className="flex-1 min-w-8 grid bg-muted h-[1em] rounded-sm overflow-hidden">
-				<span className={cn("h-full", METER_COLORS[state])} style={{ width: `${Math.min(value, 100)}%` }}></span>
-			</span>
-		</div>
-	)
+function tempColor(temp: number) {
+	return temp >= 80 ? "text-red-500" : temp >= 65 ? "text-amber-500" : "text-muted-foreground"
 }
 
 /** GPU memory is reported in MB: 23988 -> "24", 22144 -> "22.1", 30881 -> "30.9" */
@@ -198,13 +181,14 @@ function toGB(mb: number) {
 
 const freeMem = (row: GpuRow) => Math.max(0, row.memTotal - row.memUsed)
 
-// One icon + color per state (lib/gpu-availability.ts), used for the GPU
-// icons on each server row and the status icon in front of each GPU.
-const AVAILABILITY: Record<GpuAvailability, { Icon: LucideIcon; color: string }> = {
-	free: { Icon: CircleCheckIcon, color: "text-emerald-500" },
-	busy: { Icon: ActivityIcon, color: "text-red-500" },
-	held: { Icon: CirclePauseIcon, color: "text-amber-500" },
-	offline: { Icon: UnplugIcon, color: "text-muted-foreground" },
+// One dot + word per state (lib/gpu-availability.ts). The same pair is used
+// for the legend, the server summary and every GPU card, so a state is always
+// read one way.
+const AVAILABILITY: Record<GpuAvailability, { dot: string; text: string }> = {
+	free: { dot: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" },
+	busy: { dot: "bg-red-500", text: "text-red-600 dark:text-red-400" },
+	held: { dot: "bg-amber-500", text: "text-amber-600 dark:text-amber-400" },
+	offline: { dot: "bg-muted-foreground/50", text: "text-muted-foreground" },
 }
 const AVAILABILITY_ORDER: GpuAvailability[] = ["free", "busy", "held", "offline"]
 
@@ -221,9 +205,147 @@ function availabilityLabel(availability: GpuAvailability) {
 	}
 }
 
-function StatusIcon({ availability, className }: { availability: GpuAvailability; className?: string }) {
-	const { Icon, color } = AVAILABILITY[availability]
-	return <Icon className={cn("size-4 shrink-0", color, className)} aria-label={availabilityLabel(availability)} />
+function StatusBadge({ availability, className }: { availability: GpuAvailability; className?: string }) {
+	const { dot, text } = AVAILABILITY[availability]
+	return (
+		<span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium", text, className)}>
+			<span className={cn("size-2 shrink-0 rounded-full", dot)} aria-hidden="true" />
+			{availabilityLabel(availability)}
+		</span>
+	)
+}
+
+// A thin progress bar: role=progressbar for assistive tech, the width eases
+// between refreshes unless the user asked for reduced motion.
+function Bar({ value, label, color }: { value: number; label: string; color: string }) {
+	const pct = Math.min(100, Math.max(0, value))
+	return (
+		<div
+			role="progressbar"
+			aria-label={label}
+			aria-valuemin={0}
+			aria-valuemax={100}
+			aria-valuenow={Math.round(pct)}
+			className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+		>
+			<div
+				className={cn("h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none", color)}
+				style={{ width: `${pct}%` }}
+			/>
+		</div>
+	)
+}
+
+function Panel({
+	Icon,
+	label,
+	value,
+	footer,
+	children,
+}: {
+	Icon: LucideIcon
+	label: string
+	value: string
+	footer?: ReactNode
+	children: ReactNode
+}) {
+	return (
+		<div className="min-w-0 rounded-xl border bg-background/60 px-3 py-2.5">
+			<div className="flex items-center justify-between gap-2 text-sm">
+				<span className="inline-flex items-center gap-1.5 text-muted-foreground">
+					<Icon className="size-3.5" aria-hidden="true" />
+					{label}
+				</span>
+				<span className="font-medium tabular-nums">{value}</span>
+			</div>
+			{children}
+			{footer && <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">{footer}</div>}
+		</div>
+	)
+}
+
+// One GPU as a card: state + readings in the header, memory and utilization
+// as two bars below. Clicking it opens the processes panel.
+function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOpen: () => void }) {
+	const free = row.availability === "free"
+	const memPct = row.memTotal ? (row.memUsed / row.memTotal) * 100 : 0
+	return (
+		<div
+			role="button"
+			tabIndex={0}
+			aria-label={`GPU ${row.index} ${row.name} · ${availabilityLabel(row.availability)}`}
+			onClick={onOpen}
+			onKeyDown={(e) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault()
+					onOpen()
+				}
+			}}
+			className={cn(
+				"cursor-pointer rounded-2xl border bg-card/60 p-3 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-4",
+				free && "border-emerald-500/50 bg-emerald-500/[0.06] hover:bg-emerald-500/10",
+				offline && "opacity-60"
+			)}
+		>
+			<div className="flex items-center gap-3">
+				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+					<span className="font-semibold tabular-nums">GPU {row.index}</span>
+					<span className="min-w-0 truncate text-muted-foreground" title={row.name}>
+						{row.name}
+					</span>
+					{row.temp !== undefined && (
+						<span className={cn("inline-flex items-center gap-1 text-sm tabular-nums", tempColor(row.temp))} title={t`Temperature`}>
+							<ThermometerIcon className="size-3.5" aria-hidden="true" />
+							{row.temp.toFixed(0)}°C
+						</span>
+					)}
+					{row.power !== undefined && (
+						<span className="inline-flex items-center gap-1 text-sm tabular-nums text-muted-foreground" title="Power">
+							<ZapIcon className="size-3.5" aria-hidden="true" />
+							{row.power.toFixed(0)}W
+						</span>
+					)}
+				</div>
+				<StatusBadge availability={row.availability} />
+				<ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+			</div>
+			<div className="mt-3 grid gap-3 sm:grid-cols-2">
+				<Panel
+					Icon={MemoryStickIcon}
+					label={t`Memory`}
+					value={`${decimalString(row.memUsed, 0)}MiB/${decimalString(row.memTotal, 0)}MiB`}
+					footer={
+						<>
+							<span>{t`Free VRAM`}</span>
+							<span
+								className={cn(
+									"tabular-nums",
+									free && "font-semibold text-emerald-600 dark:text-emerald-400"
+								)}
+							>
+								{row.memTotal && row.availability !== "offline" ? `${toGB(freeMem(row))} GB` : "-"}
+							</span>
+						</>
+					}
+				>
+					<Bar value={memPct} label={t`Memory`} color={barColor(memPct, 70, 90)} />
+				</Panel>
+				<Panel
+					Icon={GaugeIcon}
+					label={t({ message: "Utilization", context: "GPU card" })}
+					value={`${decimalString(row.util, row.util >= 10 ? 0 : 1)}%`}
+					footer={
+						<>
+							<span>{t`Processes`}</span>
+							<span className="tabular-nums">{row.procs.length}</span>
+						</>
+					}
+				>
+					<Bar value={row.util} label={t({ message: "Utilization", context: "GPU card" })} color={barColor(row.util, 50, 85)} />
+				</Panel>
+			</div>
+		</div>
+	)
 }
 
 async function fetchGpuRows(): Promise<GpuRow[]> {
@@ -538,14 +660,14 @@ export function GpuStatusTable() {
 								freeCount > 0 ? "border-emerald-500/50 bg-emerald-500/10" : "text-muted-foreground"
 							)}
 						>
-							<CircleCheckIcon className={cn("size-3.5", freeCount > 0 ? "text-emerald-500" : "")} />
+							<span className={cn("size-2 rounded-full", freeCount > 0 ? "bg-emerald-500" : "bg-muted-foreground/50")} aria-hidden="true" />
 							<Trans>Available GPUs</Trans>
 							<span className="font-semibold">{freeCount}</span>/ {rows.length}
 						</span>
 						<span className="hidden md:inline-flex items-center gap-3 text-xs text-muted-foreground">
 							{AVAILABILITY_ORDER.map((a) => (
 								<span key={a} className="inline-flex items-center gap-1">
-									<StatusIcon availability={a} className="size-3.5" />
+									<span className={cn("size-2 rounded-full", AVAILABILITY[a].dot)} aria-hidden="true" />
 									{availabilityLabel(a)}
 								</span>
 							))}
@@ -557,149 +679,97 @@ export function GpuStatusTable() {
 					</Button>
 				</div>
 			</CardHeader>
-			<CardContent className="max-sm:p-2 overflow-x-auto">
-				<table className="w-full min-w-[44rem] text-sm table-fixed">
-					<thead>
-						<tr className="text-left text-muted-foreground border-b">
-							<th className="font-normal py-2 px-2 w-[22%]">Server</th>
-							<th className="font-normal py-2 px-2 w-[9%]">GPU</th>
-							<th className="font-normal py-2 px-2 w-[18%]">Util %</th>
-							<th className="font-normal py-2 px-2 w-[21%]">VRAM %</th>
-							<th className="font-normal py-2 px-2 w-[10%]">{t`Free VRAM`}</th>
-							<th className="font-normal py-2 px-2 w-[8%]">Temp C</th>
-							<th className="font-normal py-2 px-2 w-[8%]">Power W</th>
-							<th className="font-normal py-2 px-2 w-[4%]"></th>
-						</tr>
-					</thead>
-					<tbody>
-						{groups.map((group) => {
-							const isOpen = !collapsed[group.systemId]
-							const status = systems[group.systemId]?.status
-							const offline = status !== undefined && status !== SystemStatus.Up
-							const toggle = () => setCollapsed({ ...collapsed, [group.systemId]: isOpen })
-							return (
-								<Fragment key={group.systemId}>
-									<tr
-										className={cn("border-b bg-muted/30 hover:bg-muted/60 cursor-pointer", offline && "opacity-60")}
-										onClick={toggle}
+			<CardContent className="space-y-3 max-sm:p-2">
+				{groups.map((group) => {
+					const isOpen = !collapsed[group.systemId]
+					const status = systems[group.systemId]?.status
+					const offline = status !== undefined && status !== SystemStatus.Up
+					const toggle = () => setCollapsed({ ...collapsed, [group.systemId]: isOpen })
+					const free = group.gpus.filter((g) => g.availability === "free").length
+					const total = group.gpus.length
+					return (
+						<section key={group.systemId} className="space-y-2">
+							<div
+								className={cn(
+									"flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border bg-muted/30 px-3 py-2 hover:bg-muted/60",
+									offline && "opacity-60"
+								)}
+								onClick={toggle}
+							>
+								<span className="inline-flex items-center gap-2 font-medium">
+									<button
+										type="button"
+										aria-expanded={isOpen}
+										aria-label={`${isOpen ? "Collapse" : "Expand"} ${group.name}`}
+										className="text-muted-foreground"
+										onClick={(e) => {
+											e.stopPropagation()
+											toggle()
+										}}
 									>
-										<td className="py-2 px-2">
-											<span className="inline-flex items-center gap-1.5 font-medium">
-												<button
-													type="button"
-													aria-expanded={isOpen}
-													aria-label={`${isOpen ? "Collapse" : "Expand"} ${group.name}`}
-													className="text-muted-foreground"
-													onClick={(e) => {
-														e.stopPropagation()
-														toggle()
-													}}
-												>
-													<ChevronRightIcon className={cn("size-4 transition-transform", isOpen && "rotate-90")} />
-												</button>
-												<span
-													className={cn(
-														"inline-block size-1.5 rounded-full shrink-0",
-														getServerDotColor(
-															group.name,
-															Object.values(systems).map((s) => s.name)
-														)
-													)}
-												/>
-												<Link
-													href={getPagePath($router, "system", { id: group.systemId })}
-													className="hover:underline"
-													onClick={(e) => e.stopPropagation()}
-												>
-													{group.name}
-												</Link>
-												{offline && <span className="text-xs font-normal text-muted-foreground">({status})</span>}
-											</span>
-										</td>
-										<td className="py-2 px-2">
-											<span className="inline-flex flex-wrap items-center gap-1">
-												{group.gpus.map((g) => (
-													<span key={g.index} title={`GPU ${g.index} · ${availabilityLabel(g.availability)}`}>
-														<GpuIcon className={cn("size-5", AVAILABILITY[g.availability].color)} />
-													</span>
-												))}
-											</span>
-										</td>
-										<td className="py-2 px-2 min-w-32">
-											<Meter value={group.avgUtil} />
-										</td>
-										<td className="py-2 px-2 min-w-32">
-											<Meter value={group.vramPct} />
-										</td>
-										<td className="py-2 px-2 tabular-nums" title={t`Most free VRAM on a single GPU`}>
-											{(() => {
-												const online = group.gpus.filter((g) => g.availability !== "offline" && g.memTotal)
-												return online.length ? `${toGB(Math.max(...online.map(freeMem)))} GB` : "-"
-											})()}
-										</td>
-										<td className="py-2 px-2 tabular-nums" title="Hottest GPU">
-											{group.maxTemp !== undefined ? `${group.maxTemp.toFixed(0)} °C` : "-"}
-										</td>
-										<td className="py-2 px-2 tabular-nums" title="Total power">
-											{group.totalPower !== undefined ? `${group.totalPower.toFixed(1)} W` : "-"}
-										</td>
-										<td className="py-2 px-2"></td>
-									</tr>
-									{isOpen &&
-										group.gpus.map((row) => {
-											const key = `${row.systemId}-${row.index}`
-											return (
-												<tr
-													key={key}
-													className={cn(
-														"border-b last:border-0 hover:bg-muted/50 cursor-pointer",
-														row.availability === "free" && "bg-emerald-500/[0.07] hover:bg-emerald-500/15",
-														offline && "opacity-60"
-													)}
-													onClick={() => {
-														setActiveRowKey(key)
-														setSheetOpen(true)
-													}}
-												>
-													<td className="py-2 ps-8 pe-2" title={`${row.name} · ${availabilityLabel(row.availability)}`}>
-														<span className="flex items-center gap-2 min-w-0">
-															<StatusIcon availability={row.availability} />
-															<span className="truncate text-muted-foreground">{row.name}</span>
-															{row.availability === "free" && (
-																<span className="shrink-0 rounded-full bg-emerald-500/15 px-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-																	{availabilityLabel("free")}
-																</span>
-															)}
-														</span>
-													</td>
-													<td className="py-2 px-2 tabular-nums">{row.index}</td>
-													<td className="py-2 px-2 min-w-32">
-														<Meter value={row.util} />
-													</td>
-													<td className="py-2 px-2 min-w-32">
-														<Meter value={row.vramPct} />
-													</td>
-													<td
-														className={cn(
-															"py-2 px-2 tabular-nums",
-															row.availability === "free" && "font-semibold text-emerald-600 dark:text-emerald-400"
-														)}
-													>
-														{row.memTotal && row.availability !== "offline" ? `${toGB(freeMem(row))} GB` : "-"}
-													</td>
-													<td className="py-2 px-2 tabular-nums">{row.temp !== undefined ? `${row.temp.toFixed(0)} °C` : "-"}</td>
-													<td className="py-2 px-2 tabular-nums">{row.power !== undefined ? `${row.power.toFixed(1)} W` : "-"}</td>
-													<td className="py-2 px-2 text-muted-foreground">
-														<HashIcon className="size-4" aria-label="View processes" />
-													</td>
-												</tr>
+										<ChevronRightIcon className={cn("size-4 transition-transform", isOpen && "rotate-90")} />
+									</button>
+									<span
+										className={cn(
+											"inline-block size-1.5 shrink-0 rounded-full",
+											getServerDotColor(
+												group.name,
+												Object.values(systems).map((s) => s.name)
 											)
-										})}
-								</Fragment>
-							)
-						})}
-					</tbody>
-				</table>
+										)}
+									/>
+									<Link
+										href={getPagePath($router, "system", { id: group.systemId })}
+										className="hover:underline"
+										onClick={(e) => e.stopPropagation()}
+									>
+										{group.name}
+									</Link>
+									{offline && <span className="text-xs font-normal text-muted-foreground">({status})</span>}
+								</span>
+								<span
+									className={cn(
+										"text-sm tabular-nums",
+										free > 0 ? "font-medium text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
+									)}
+								>
+									{t`${free} / ${total} free`}
+								</span>
+								<span className="ms-auto flex flex-wrap items-center gap-x-4 text-xs tabular-nums text-muted-foreground">
+									<span title="Average utilization">
+										{t({ message: "Utilization", context: "GPU card" })} {decimalString(group.avgUtil, 0)}%
+									</span>
+									<span title={t`Most free VRAM on a single GPU`}>
+										{(() => {
+											const online = group.gpus.filter((g) => g.availability !== "offline" && g.memTotal)
+											return online.length ? `${t`Free VRAM`} ${toGB(Math.max(...online.map(freeMem)))} GB` : ""
+										})()}
+									</span>
+									{group.maxTemp !== undefined && <span title="Hottest GPU">{group.maxTemp.toFixed(0)}°C</span>}
+									{group.totalPower !== undefined && <span title="Total power">{group.totalPower.toFixed(0)}W</span>}
+								</span>
+							</div>
+							{isOpen && (
+								<div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
+									{group.gpus.map((row) => {
+										const key = `${row.systemId}-${row.index}`
+										return (
+											<GpuCard
+												key={key}
+												row={row}
+												offline={offline}
+												onOpen={() => {
+													setActiveRowKey(key)
+													setSheetOpen(true)
+												}}
+											/>
+										)
+									})}
+								</div>
+							)}
+						</section>
+					)
+				})}
 			</CardContent>
 			<GpuProcessesSheet
 				row={rows.find((r) => `${r.systemId}-${r.index}` === activeRowKey)}

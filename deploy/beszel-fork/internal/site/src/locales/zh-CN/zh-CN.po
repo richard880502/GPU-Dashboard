@@ -2829,3 +2829,16 @@ msgstr "主节点：{head}"
 msgctxt "Container ports"
 msgid "Host ports only (older agent)"
 msgstr "仅宿主 port（旧版 agent）"
+
+#. gpu-monitoring fork
+msgid "Processes"
+msgstr "进程"
+
+#. gpu-monitoring fork
+msgid "{free} / {total} free"
+msgstr "{free} / {total} 空闲"
+
+#. gpu-monitoring fork
+msgctxt "GPU card"
+msgid "Utilization"
+msgstr "利用率"
