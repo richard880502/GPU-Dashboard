@@ -85,7 +85,7 @@
 #     docker compose -f beszel-agent-compose.yml up -d
 services:
   beszel-agent:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.10.1
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.11.0
     container_name: beszel-agent
     restart: unless-stopped
     network_mode: host
