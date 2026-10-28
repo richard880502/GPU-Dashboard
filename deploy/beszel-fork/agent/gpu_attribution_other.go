@@ -13,4 +13,4 @@ func newGpuAttributor(*http.Client, *criCollector) *gpuAttributor { return nil }
 
 func (g *gpuAttributor) containers() map[pidIndex]pidContainer { return nil }
 
-func (g *gpuAttributor) listenPorts([]string) map[string][]uint16 { return nil }
+func (g *gpuAttributor) listenPorts([]string) map[string]containerListen { return nil }

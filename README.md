@@ -930,6 +930,12 @@ as the process attribution above):
   processes (matched by socket inode, since a host-network namespace lists the
   whole machine's sockets), bound to a non-loopback address, so a service that
   listens on `127.0.0.1` only isn't shown;
+- sockets held only by **Ray runtime processes** are left out (raylet, the
+  `ray::` workers and actors, the dashboard and its agents, the GCS, log
+  monitor...; recognized from the process cmdline), so a Ray container shows
+  its service port and not the dozens of internal ones. Ray Serve's own actors
+  (`ray::ServeReplica...`, `ray::ProxyActor`) are kept, they are the service.
+  A process whose cmdline can't be read is treated as an ordinary one;
 - consecutive ports become a range, ports below 32768 come first (higher ones
   are normally a runtime's internal workers), at most 20 entries are kept;
 - only containers that currently run GPU processes are looked at, refreshed
@@ -940,9 +946,20 @@ as the process attribution above):
   add `SYS_PTRACE` to the agent's `cap_add` (`--cap-add SYS_PTRACE`); the
   agent logs `Listening ports: can't read the fds ...` once when it can't.
 
+A container that runs a Ray node gets a **Ray head** or **Ray worker** badge:
+head = it runs something only the head has (`gcs_server`, the dashboard,
+`ray start --head`); worker = it only joins a head (`raylet`,
+`ray start --address=...`). A worker has no service port of its own: the badge
+is followed by `→ <head host>` (from `--address` / the raylet's
+`--gcs-address`) when known, and the tooltip says the service ports are on the
+head node. In a vLLM-on-Ray cluster that is where `vllm serve --port N` runs.
+The agent's portMap text for these is `R:head;L:8287` / `R:worker=10.0.0.1`.
+
 `host network` means the container is on the host network but nothing external
-is listening (or it can't be read); `—` is a host or Kubernetes process, or a
-node whose agent is older than this column.
+is listening (or it can't be read). A node whose agent is older than this
+column falls back to the host ports of the Containers page, shown muted and
+marked "host ports only (older agent)"; `—` is a host or Kubernetes process
+with neither.
 
 # Why the Beszel fork exists
 

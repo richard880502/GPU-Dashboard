@@ -95,8 +95,10 @@ func TestListenPortsHostNetworkContainer(t *testing.T) {
 	}
 
 	got := g.listenPorts([]string{"vllm_gemma4_ray"})
-	assert.Equal(t, map[string][]uint16{"vllm_gemma4_ray": {6379, 8000, 8265}}, got,
+	require.Contains(t, got, "vllm_gemma4_ray")
+	assert.Equal(t, []uint16{6379, 8000, 8265}, got["vllm_gemma4_ray"].ports,
 		"only the container's own sockets, external only, v4/v6 merged")
+	assert.Empty(t, got["vllm_gemma4_ray"].role, "no cmdline: not a Ray node, nothing filtered")
 
 	// cached within the TTL for the same container set
 	_ = g.listenPorts([]string{"vllm_gemma4_ray"})
@@ -104,7 +106,7 @@ func TestListenPortsHostNetworkContainer(t *testing.T) {
 	// a different set rescans
 	got = g.listenPorts([]string{"other", "vllm_gemma4_ray"})
 	assert.Equal(t, 2, scans)
-	assert.Equal(t, []uint16{7000}, got["other"])
+	assert.Equal(t, []uint16{7000}, got["other"].ports)
 }
 
 func TestListenPortsUnreadableFds(t *testing.T) {
@@ -176,4 +178,142 @@ func TestApplyListenPorts(t *testing.T) {
 	// without HOST_PROC the container stays "host"
 	(&Agent{}).applyListenPorts(all, byPID)
 	assert.Equal(t, "host", vllm.PortMap)
+}
+
+// writeCmdline writes /proc/<pid>/cmdline (NUL-separated arguments).
+func writeCmdline(t *testing.T, root, pid string, args ...string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(root, pid, "cmdline"), []byte(strings.Join(args, "\x00")+"\x00"), 0o644))
+}
+
+const rayBin = "/usr/local/lib/python3.12/dist-packages/ray"
+
+// A Ray head running `vllm serve --port 8287`: the service's socket is kept,
+// everything the Ray runtime opened is dropped, and the container is a head.
+func TestListenPortsRayHead(t *testing.T) {
+	id := strings.Repeat("e", 64)
+	cg := "0::/system.slice/docker-" + id + ".scope\n"
+	tcp := tcpHeader +
+		tcpLine(anyV4, 8287, "0A", 1001) + // vllm serve
+		tcpLine(anyV4, 8000, "0A", 1002) + // Ray Serve proxy actor
+		tcpLine(anyV4, 6380, "0A", 2001) + // gcs_server
+		tcpLine(anyV4, 8265, "0A", 2002) + // dashboard
+		tcpLine("0A00A8C0", 10002, "0A", 3001) + // ray::RayWorkerWrapper
+		tcpLine(anyV4, 40001, "0A", 3002) + // raylet node manager
+		tcpLine(anyV4, 52365, "0A", 3003) + // dashboard agent
+		tcpLine(anyV4, 22, "0A", 4001) // host sshd, not the container's
+	root := fakeListenProc(t,
+		map[string]string{"10": cg, "11": cg, "12": cg, "13": cg, "14": cg, "15": cg, "16": cg, "17": cg},
+		map[string][]int{
+			"10": {1001},
+			"11": {2001},
+			"12": {2002},
+			"13": {3001},
+			"14": {3002},
+			"15": {3003},
+			"16": {1002},
+		}, tcp, tcpHeader)
+	writeCmdline(t, root, "10", "/usr/bin/python3", "/usr/local/bin/vllm", "serve", "/workspace/llm_model", "--port", "8287", "--distributed-executor-backend", "ray")
+	writeCmdline(t, root, "11", rayBin+"/core/src/ray/gcs/gcs_server", "--log_dir=/tmp/ray/session/logs", "--gcs_server_port=6380")
+	writeCmdline(t, root, "12", "/usr/bin/python3", "-u", rayBin+"/dashboard/dashboard.py", "--host=0.0.0.0", "--port=8265")
+	writeCmdline(t, root, "13", "ray::RayWorkerWrapper")
+	writeCmdline(t, root, "14", rayBin+"/core/src/ray/raylet/raylet", "--gcs-address=192.168.1.79:6380")
+	writeCmdline(t, root, "15", "/usr/bin/python3", "-u", rayBin+"/dashboard/agent.py", "--node-ip-address=192.168.1.79")
+	writeCmdline(t, root, "16", "ray::ProxyActor")
+	// `ray start --head --block` itself
+	writeCmdline(t, root, "17", "/usr/bin/python3.12", "/usr/local/bin/ray", "start", "--head", "--port=6380", "--block")
+
+	g := &gpuAttributor{procRoot: root, dockerNames: func() map[string]string { return map[string]string{id: "vllm_gemma4_ray"} }}
+	got := g.listenPorts([]string{"vllm_gemma4_ray"})["vllm_gemma4_ray"]
+	assert.Equal(t, []uint16{8000, 8287}, got.ports, "the vLLM API and the Ray Serve proxy; no GCS, dashboard, raylet, worker or agent port")
+	assert.Equal(t, "head", got.role)
+	assert.Empty(t, got.head)
+	assert.Equal(t, "R:head;L:8000, 8287", formatContainerListen(got))
+}
+
+// A Ray worker has no service of its own: its sockets are all the runtime's.
+func TestListenPortsRayWorker(t *testing.T) {
+	id := strings.Repeat("f", 64)
+	cg := "0::/system.slice/docker-" + id + ".scope\n"
+	tcp := tcpHeader +
+		tcpLine(anyV4, 10002, "0A", 3001) +
+		tcpLine(anyV4, 33229, "0A", 3002) +
+		tcpLine(anyV4, 35417, "0A", 3003) +
+		tcpLine(anyV4, 52365, "0A", 3004)
+	root := fakeListenProc(t,
+		map[string]string{"10": cg, "11": cg, "12": cg, "13": cg},
+		map[string][]int{"10": {3001}, "11": {3002}, "12": {3003}, "13": {3004}}, tcp, tcpHeader)
+	writeCmdline(t, root, "10", "ray::IDLE")
+	writeCmdline(t, root, "11", rayBin+"/core/src/ray/raylet/raylet", "--gcs-address=192.168.1.79:6380", "--node_ip_address=192.168.1.80")
+	writeCmdline(t, root, "12", "/usr/bin/python3", rayBin+"/_private/log_monitor.py")
+	writeCmdline(t, root, "13", "/usr/bin/python3.12", "/usr/local/bin/ray", "start", "--address=192.168.1.79:6380", "--node-ip-address=192.168.1.80", "--disable-usage-stats", "--block")
+
+	g := &gpuAttributor{procRoot: root, dockerNames: func() map[string]string { return map[string]string{id: "vllm_gemma4_ray"} }}
+	got := g.listenPorts([]string{"vllm_gemma4_ray"})["vllm_gemma4_ray"]
+	assert.Empty(t, got.ports)
+	assert.Equal(t, "worker", got.role)
+	assert.Equal(t, "192.168.1.79", got.head)
+	assert.Equal(t, "R:worker=192.168.1.79", formatContainerListen(got))
+}
+
+// Without the `ray start` process (it exits unless --block) a worker is still
+// recognized from its raylet, and the head address comes from --gcs-address.
+func TestListenPortsRayWorkerWithoutCLI(t *testing.T) {
+	id := strings.Repeat("9", 64)
+	cg := "0::/system.slice/docker-" + id + ".scope\n"
+	root := fakeListenProc(t, map[string]string{"10": cg}, map[string][]int{"10": {3001}},
+		tcpHeader+tcpLine(anyV4, 40001, "0A", 3001), tcpHeader)
+	writeCmdline(t, root, "10", rayBin+"/core/src/ray/raylet/raylet", "--gcs-address=192.168.1.79:6380")
+	g := &gpuAttributor{procRoot: root, dockerNames: func() map[string]string { return map[string]string{id: "w"} }}
+	got := g.listenPorts([]string{"w"})["w"]
+	assert.Equal(t, "worker", got.role)
+	assert.Equal(t, "192.168.1.79", got.head)
+	assert.Empty(t, got.ports)
+}
+
+// A plain host-network service next to nothing Ray: all ports stay.
+func TestListenPortsNonRayKeepsEverything(t *testing.T) {
+	id := strings.Repeat("8", 64)
+	cg := "0::/system.slice/docker-" + id + ".scope\n"
+	root := fakeListenProc(t, map[string]string{"10": cg}, map[string][]int{"10": {1001, 1002}},
+		tcpHeader+tcpLine(anyV4, 8000, "0A", 1001)+tcpLine(anyV4, 10002, "0A", 1002), tcpHeader)
+	writeCmdline(t, root, "10", "/usr/bin/python3", "-m", "uvicorn", "app:app", "--port", "8000")
+	g := &gpuAttributor{procRoot: root, dockerNames: func() map[string]string { return map[string]string{id: "svc"} }}
+	got := g.listenPorts([]string{"svc"})["svc"]
+	assert.Equal(t, []uint16{8000, 10002}, got.ports)
+	assert.Empty(t, got.role)
+	assert.Equal(t, "L:8000, 10002", formatContainerListen(got))
+}
+
+// A socket inherited by a service process is the service's even if a Ray
+// process holds it too; an unreadable cmdline filters nothing.
+func TestListenPortsSharedSocketAndUnreadableCmdline(t *testing.T) {
+	id := strings.Repeat("7", 64)
+	cg := "0::/system.slice/docker-" + id + ".scope\n"
+	root := fakeListenProc(t, map[string]string{"10": cg, "11": cg, "12": cg},
+		map[string][]int{"10": {1001}, "11": {1001, 1002}, "12": {1003}},
+		tcpHeader+tcpLine(anyV4, 8287, "0A", 1001)+tcpLine(anyV4, 10002, "0A", 1002)+tcpLine(anyV4, 9000, "0A", 1003), tcpHeader)
+	writeCmdline(t, root, "10", "/usr/bin/python3", "/usr/local/bin/vllm", "serve")
+	writeCmdline(t, root, "11", "ray::RayWorkerWrapper")
+	// pid 12 has no cmdline file: treated as an ordinary process
+	g := &gpuAttributor{procRoot: root, dockerNames: func() map[string]string { return map[string]string{id: "svc"} }}
+	got := g.listenPorts([]string{"svc"})["svc"]
+	assert.Equal(t, []uint16{8287, 9000}, got.ports, "10002 is only held by a Ray worker")
+}
+
+func TestApplyListenPortsRayRole(t *testing.T) {
+	id := strings.Repeat("6", 64)
+	cg := "0::/system.slice/docker-" + id + ".scope\n"
+	root := fakeListenProc(t, map[string]string{"10": cg}, map[string][]int{"10": {3001}},
+		tcpHeader+tcpLine(anyV4, 10002, "0A", 3001), tcpHeader)
+	writeCmdline(t, root, "10", "/usr/bin/python3.12", "/usr/local/bin/ray", "start", "--address=192.168.1.79:6380", "--block")
+	a := &Agent{gpuAttribution: &gpuAttributor{procRoot: root, dockerNames: func() map[string]string { return map[string]string{id: "ray"} }}}
+	byPID := map[pidIndex]pidContainer{{pid: "10", index: "0"}: {container: "ray"}}
+	c := &container.Stats{Name: "ray", PortMap: "host"}
+	a.applyListenPorts([]*container.Stats{c}, byPID)
+	assert.Equal(t, "R:worker=192.168.1.79", c.PortMap)
+	// reused stats object with an earlier "R:" text is re-evaluated
+	a.gpuAttribution.listenAt = a.gpuAttribution.listenAt.Add(-2 * listenScanTTL)
+	a.applyListenPorts([]*container.Stats{c}, byPID)
+	assert.Equal(t, "R:worker=192.168.1.79", c.PortMap)
 }

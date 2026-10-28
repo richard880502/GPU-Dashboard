@@ -70,7 +70,7 @@ type gpuAttributor struct {
 
 	// listening ports of host-network GPU containers (container_listen_linux.go)
 	listenMu     sync.Mutex
-	listenCached map[string][]uint16
+	listenCached map[string]containerListen
 	listenKey    string
 	listenAt     time.Time
 	listenWarned bool

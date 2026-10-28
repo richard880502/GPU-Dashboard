@@ -167,3 +167,39 @@ func portRanges(ports []int) []string {
 	}
 	return out
 }
+
+// containerListen is what the /proc scan learns about one host-network
+// container (container_listen_linux.go).
+type containerListen struct {
+	ports []uint16 // sorted external TCP listen ports of its non-Ray-internal processes
+	role  string   // "head" / "worker" if it runs a Ray node, else ""
+	head  string   // a worker's head node address (host only), if known
+}
+
+// formatContainerListen formats what the scan found as the portMap text:
+// ";"-separated parts, "R:head" / "R:worker" / "R:worker=<head host>" (the
+// container runs a Ray node), then "L:8287, ..." (listening ports, see
+// formatListenPorts). "" if there is nothing to say.
+func formatContainerListen(c containerListen) string {
+	var parts []string
+	switch c.role {
+	case "head":
+		parts = append(parts, "R:head")
+	case "worker":
+		if c.head != "" {
+			parts = append(parts, "R:worker="+c.head)
+		} else {
+			parts = append(parts, "R:worker")
+		}
+	}
+	if ports := formatListenPorts(c.ports); ports != "" {
+		parts = append(parts, ports)
+	}
+	return strings.Join(parts, ";")
+}
+
+// isListenPortMap reports whether a PortMap is one applyListenPorts owns: the
+// placeholder "host", or text it wrote earlier (stats objects are reused).
+func isListenPortMap(s string) bool {
+	return s == "host" || strings.HasPrefix(s, "L:") || strings.HasPrefix(s, "R:")
+}

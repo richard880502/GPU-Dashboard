@@ -2799,3 +2799,33 @@ msgstr "監聽"
 msgctxt "Container ports"
 msgid "Listening on the host network"
 msgstr "host 網路上監聽的 port"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Ray head"
+msgstr "Ray 主節點"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Ray worker"
+msgstr "Ray 工作節點"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Ray head node"
+msgstr "Ray 主節點"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Ray worker node: the service ports are on the head node"
+msgstr "Ray 工作節點：服務 port 在主節點上"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Head node: {head}"
+msgstr "主節點：{head}"
+
+#. gpu-monitoring fork
+msgctxt "Container ports"
+msgid "Host ports only (older agent)"
+msgstr "僅宿主 port（舊版 agent）"

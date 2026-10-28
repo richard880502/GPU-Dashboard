@@ -133,7 +133,8 @@ func applyContainerGPUStats(containers []*container.Stats, containerByPID map[pi
 
 // applyListenPorts replaces "host" in the PortMap of host-network containers
 // that have GPU processes with the TCP ports they actually listen on
-// ("L:8000, 8265"), read from the host's /proc. Docker has no mapping to
+// ("L:8000, 8265") and, for a Ray node, its role ("R:head;L:8287"), read from
+// the host's /proc. Docker has no mapping to
 // report for these, so without it the panel can't say which port a vLLM API
 // answers on. Without the host's /proc (or if nothing external is listening)
 // the container stays "host".
@@ -150,7 +151,7 @@ func (a *Agent) applyListenPorts(containers []*container.Stats, containerByPID m
 	for _, c := range containers {
 		// container stats are reused across polls, so an earlier "L:..." is
 		// re-evaluated rather than trusted
-		if c.PortMap != "host" && !strings.HasPrefix(c.PortMap, "L:") {
+		if !isListenPortMap(c.PortMap) {
 			continue
 		}
 		if _, ok := withGPU[c.Name]; !ok {
@@ -165,7 +166,7 @@ func (a *Agent) applyListenPorts(containers []*container.Stats, containerByPID m
 	listening := a.gpuAttribution.listenPorts(names)
 	for _, c := range targets {
 		c.PortMap = "host"
-		if text := formatListenPorts(listening[c.Name]); text != "" {
+		if text := formatContainerListen(listening[c.Name]); text != "" {
 			c.PortMap = text
 		}
 	}

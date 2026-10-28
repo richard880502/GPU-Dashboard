@@ -15,6 +15,13 @@ package agent
 //     inode against the sockets in the container's /proc/<pid>/fd;
 //   - only sockets bound to a non-loopback address count as "external".
 //
+// Ray clusters (vLLM with --distributed-executor-backend ray) fill that list
+// with the runtime's own sockets: raylet, workers (10002-19999), the agents'
+// metrics ports... none of them is the service. Each process's cmdline is read
+// too, so sockets owned only by Ray-internal processes are dropped, and the
+// container is labelled a Ray head (runs the GCS / dashboard) or a Ray worker
+// (the service port lives on the head node). See ray_proc_linux.go.
+//
 // Reading another process's fd links needs ptrace-read access: fine for
 // root-owned, dumpable processes (the agent runs as root), otherwise the
 // agent needs CAP_SYS_PTRACE.
@@ -35,9 +42,9 @@ import (
 // the containers' processes; ports of a running service rarely change
 const listenScanTTL = 30 * time.Second
 
-// listenPorts returns, per container name, the sorted external TCP listen
-// ports of its processes. Containers it can't read are left out.
-func (g *gpuAttributor) listenPorts(names []string) map[string][]uint16 {
+// listenPorts returns, per container name, its external TCP listen ports and
+// Ray role. Containers it can't read are left out.
+func (g *gpuAttributor) listenPorts(names []string) map[string]containerListen {
 	if g == nil || len(names) == 0 {
 		return nil
 	}
@@ -55,7 +62,7 @@ func (g *gpuAttributor) listenPorts(names []string) map[string][]uint16 {
 	return g.listenCached
 }
 
-func (g *gpuAttributor) scanListenPorts(names []string) map[string][]uint16 {
+func (g *gpuAttributor) scanListenPorts(names []string) map[string]containerListen {
 	if g.dockerNames == nil {
 		return nil
 	}
@@ -93,47 +100,73 @@ func (g *gpuAttributor) scanListenPorts(names []string) map[string][]uint16 {
 		}
 	}
 
-	result := make(map[string][]uint16, len(pidsByName))
+	result := make(map[string]containerListen, len(pidsByName))
 	for name, pids := range pidsByName {
-		inodes := map[uint64]struct{}{}
+		// inodes of the container's sockets, split by whether a Ray-internal
+		// process holds them (a socket also held by a service process counts
+		// as the service's)
+		service := map[uint64]struct{}{}
+		ray := rayNode{}
 		netPid := ""
+		readable := false
 		for _, pid := range pids {
+			proc := g.readRayProc(pid)
+			ray.add(proc)
+			inodes := map[uint64]struct{}{}
 			if !g.collectSocketInodes(pid, inodes) {
 				continue
 			}
+			readable = true
 			if netPid == "" {
 				netPid = pid
 			}
-		}
-		if netPid == "" || len(inodes) == 0 {
-			g.warnFdUnreadable(name)
-			continue
-		}
-		// one namespace per container: any of its processes shows the same table
-		var ports []uint16
-		seen := map[uint16]struct{}{}
-		for _, file := range []string{"tcp", "tcp6"} {
-			data, err := os.ReadFile(filepath.Join(g.procRoot, netPid, "net", file))
-			if err != nil {
+			if proc.internal {
 				continue
 			}
-			for _, l := range parseListenSockets(string(data)) {
-				if _, mine := inodes[l.inode]; !mine {
-					continue
-				}
-				if _, dup := seen[l.port]; dup {
-					continue
-				}
-				seen[l.port] = struct{}{}
-				ports = append(ports, l.port)
+			for inode := range inodes {
+				service[inode] = struct{}{}
 			}
 		}
-		if len(ports) > 0 {
-			sort.Slice(ports, func(i, j int) bool { return ports[i] < ports[j] })
-			result[name] = ports
+		if !readable {
+			g.warnFdUnreadable(name)
+		}
+		entry := containerListen{role: ray.role(), head: ray.headAddr()}
+		if netPid != "" && len(service) > 0 {
+			// one namespace per container: any of its processes shows the same table
+			seen := map[uint16]struct{}{}
+			for _, file := range []string{"tcp", "tcp6"} {
+				data, err := os.ReadFile(filepath.Join(g.procRoot, netPid, "net", file))
+				if err != nil {
+					continue
+				}
+				for _, l := range parseListenSockets(string(data)) {
+					if _, mine := service[l.inode]; !mine {
+						continue
+					}
+					if _, dup := seen[l.port]; dup {
+						continue
+					}
+					seen[l.port] = struct{}{}
+					entry.ports = append(entry.ports, l.port)
+				}
+			}
+			sort.Slice(entry.ports, func(i, j int) bool { return entry.ports[i] < entry.ports[j] })
+		}
+		if len(entry.ports) > 0 || entry.role != "" {
+			result[name] = entry
 		}
 	}
 	return result
+}
+
+// readRayProc classifies a process by its cmdline; an unreadable one (exited,
+// or no access) is treated as an ordinary process, i.e. nothing is filtered.
+func (g *gpuAttributor) readRayProc(pid string) rayProc {
+	data, err := os.ReadFile(filepath.Join(g.procRoot, pid, "cmdline"))
+	if err != nil || len(data) == 0 {
+		return rayProc{}
+	}
+	return classifyRayProc(strings.Split(strings.TrimRight(string(data), "\x00"), "\x00"))
 }
 
 // collectSocketInodes adds the pid's socket inodes; false if its fd
