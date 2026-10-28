@@ -10,6 +10,7 @@ import { pb } from "@/lib/api"
 import { resolvePortMap, type RayInfo } from "@/lib/container-ports"
 import { $allSystemsById } from "@/lib/stores"
 import { SystemStatus } from "@/lib/enums"
+import { displayGpuModel } from "@/lib/gpu-model"
 import type { ContainerRecord, GPUProcess } from "@/types"
 import { cn, decimalString, getServerDotColor, useBrowserStorage } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -432,7 +433,8 @@ async function fetchGpuRows(): Promise<GpuRow[]> {
 			rows.push({
 				systemId,
 				index,
-				name: gpu.n,
+				// the agent's " <id>" suffix on duplicate models is shown as "GPU <id>" already
+				name: displayGpuModel(gpu.n, index),
 				util: gpu.u ?? 0,
 				vramPct: gpu.mt ? ((gpu.mu ?? 0) / gpu.mt) * 100 : 0,
 				memUsed: gpu.mu ?? 0,
