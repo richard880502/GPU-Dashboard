@@ -2842,3 +2842,27 @@ msgstr "{free} / {total} 空閒"
 msgctxt "GPU card"
 msgid "Utilization"
 msgstr "利用率"
+
+#. gpu-monitoring fork
+msgid "Fan speed"
+msgstr "風扇轉速"
+
+#. gpu-monitoring fork
+msgid "Power / limit"
+msgstr "功耗 / 上限"
+
+#. gpu-monitoring fork
+msgid "All servers"
+msgstr "所有伺服器"
+
+#. gpu-monitoring fork
+msgid "Filter by server"
+msgstr "依伺服器篩選"
+
+#. gpu-monitoring fork
+msgid "Show only this server"
+msgstr "只顯示此伺服器"
+
+#. gpu-monitoring fork
+msgid "Show only the selected servers (none selected shows all)"
+msgstr "只顯示剔選的伺服器（未剔選則顯示全部）"

@@ -18,6 +18,7 @@ import { EthernetIcon, GpuIcon, HourglassIcon, SquareArrowRightEnterIcon } from 
 import { Badge } from "../ui/badge"
 import { t } from "@lingui/core/macro"
 import { $allSystemsById, $longestSystemName } from "@/lib/stores"
+import { $containerSystems, setContainerSystems } from "@/lib/containers-filter-store"
 import { useStore } from "@nanostores/react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 
@@ -76,6 +77,7 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 		cell: ({ getValue }) => {
 			const allSystems = useStore($allSystemsById)
 			const longestName = useStore($longestSystemName)
+			const selected = useStore($containerSystems)
 			const name = allSystems[getValue() as string]?.name ?? ""
 			return (
 				<div className="ms-1 flex items-center gap-1.5">
@@ -88,12 +90,21 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 							)
 						)}
 					/>
-					<div className="relative w-fit max-w-56">
+					<button
+						type="button"
+						// gpu-monitoring fork: click the server to list only its containers (again to undo)
+						title={t`Show only this server`}
+						className="relative w-fit max-w-56 cursor-pointer text-start hover:underline"
+						onClick={(e) => {
+							e.stopPropagation()
+							setContainerSystems(selected.length === 1 && selected[0] === name ? [] : [name])
+						}}
+					>
 						<span className="invisible block whitespace-nowrap font-medium" aria-hidden="true">
 							{longestName.length > name.length ? longestName : name}
 						</span>
 						<span className="absolute inset-0 truncate font-medium">{name}</span>
-					</div>
+					</button>
 				</div>
 			)
 		},

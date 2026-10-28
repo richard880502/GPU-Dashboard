@@ -122,6 +122,12 @@ type GPUData struct {
 	// addition, not upstream), including plain host processes (Container
 	// is "host" when a PID isn't inside a Docker container).
 	Processes []GPUProcess `json:"procs,omitempty" cbor:"101,keyasint,omitempty"`
+	// FanSpeed (percent) and PowerLimit (watts) are gpu-monitoring fork
+	// additions (not upstream). Pointers, so "the card reports nothing"
+	// (N/A, no fan, an older agent) stays distinct from a real 0 -- zero-fan
+	// mode idles at 0% and that is worth showing.
+	FanSpeed   *float64 `json:"fan,omitzero" cbor:"102,keyasint,omitempty,omitzero"`
+	PowerLimit *float64 `json:"pl,omitzero" cbor:"103,keyasint,omitempty,omitzero"`
 }
 
 // GPUProcess is a gpu-monitoring fork addition: one process currently using

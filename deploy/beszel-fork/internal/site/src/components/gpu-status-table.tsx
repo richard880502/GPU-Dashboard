@@ -10,6 +10,7 @@ import { pb } from "@/lib/api"
 import { resolvePortMap, type RayInfo } from "@/lib/container-ports"
 import { $allSystemsById } from "@/lib/stores"
 import { SystemStatus } from "@/lib/enums"
+import { displayGpuModel } from "@/lib/gpu-model"
 import type { ContainerRecord, GPUProcess } from "@/types"
 import { cn, decimalString, getServerDotColor, useBrowserStorage } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -17,6 +18,7 @@ import {
 	ChevronRightIcon,
 	ChevronsDownUpIcon,
 	ChevronsUpDownIcon,
+	FanIcon,
 	GaugeIcon,
 	MemoryStickIcon,
 	ThermometerIcon,
@@ -92,6 +94,8 @@ interface GpuEntry {
 	p?: number
 	t?: number
 	procs?: GPUProcess[]
+	fan?: number
+	pl?: number
 }
 
 interface GpuRow {
@@ -104,6 +108,10 @@ interface GpuRow {
 	memTotal: number
 	temp?: number
 	power?: number
+	/** fan speed (%), undefined when the card reports none (0 is a real reading) */
+	fan?: number
+	/** power limit (W) */
+	powerLimit?: number
 	procs: GPUProcess[]
 	/** epoch ms of this GPU's newest sample */
 	at: number
@@ -168,6 +176,12 @@ function groupRows(rows: GpuRow[], systems: Record<string, { name: string; statu
 // nearly full. Memory fills up sooner than it hurts, so it warns later.
 function barColor(value: number, warn: number, crit: number) {
 	return value >= crit ? "bg-red-500" : value >= warn ? "bg-amber-500" : "bg-blue-500"
+}
+
+// Power draw next to its limit: amber from 90% of the limit, red at or above it
+function powerColor(power: number, limit?: number) {
+	if (!limit) return ""
+	return power >= limit ? "text-red-500" : power >= limit * 0.9 ? "text-amber-500" : ""
 }
 
 function tempColor(temp: number) {
@@ -313,7 +327,7 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 					<div className="w-32 shrink-0 lg:order-1 lg:w-auto">
 						<StatusBadge availability={row.availability} />
 					</div>
-					<div className="w-20 shrink-0 leading-tight lg:order-2 lg:w-auto">
+					<div className="w-20 shrink-0 text-center leading-tight lg:order-2 lg:w-auto">
 						<div className="text-[11px] text-slate-500 dark:text-neutral-400">{t`Free VRAM`}</div>
 						<div
 							className={cn(
@@ -340,10 +354,19 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 									{row.temp.toFixed(0)}°C
 								</span>
 							)}
+							{row.fan !== undefined && (
+								<span className="inline-flex items-center gap-0.5" title={t`Fan speed`}>
+									<FanIcon className="size-3" aria-hidden="true" />
+									{row.fan.toFixed(0)}%
+								</span>
+							)}
 							{row.power !== undefined && (
-								<span className="inline-flex items-center gap-0.5" title="Power">
+								<span
+									className={cn("inline-flex items-center gap-0.5", powerColor(row.power, row.powerLimit))}
+									title={row.powerLimit ? t`Power / limit` : "Power"}
+								>
 									<ZapIcon className="size-3" aria-hidden="true" />
-									{row.power.toFixed(0)}W
+									{row.power.toFixed(0)}W{row.powerLimit ? ` / ${row.powerLimit.toFixed(0)}W` : ""}
 								</span>
 							)}
 							<span>
@@ -410,13 +433,16 @@ async function fetchGpuRows(): Promise<GpuRow[]> {
 			rows.push({
 				systemId,
 				index,
-				name: gpu.n,
+				// the agent's " <id>" suffix on duplicate models is shown as "GPU <id>" already
+				name: displayGpuModel(gpu.n, index),
 				util: gpu.u ?? 0,
 				vramPct: gpu.mt ? ((gpu.mu ?? 0) / gpu.mt) * 100 : 0,
 				memUsed: gpu.mu ?? 0,
 				memTotal: gpu.mt ?? 0,
 				temp: gpu.t,
 				power: gpu.p,
+				fan: gpu.fan,
+				powerLimit: gpu.pl,
 				procs: gpu.procs ?? [],
 				at,
 				busyAt: busyAtByGpu.get(rowKey({ systemId, index })) ?? 0,

@@ -194,6 +194,10 @@ export interface GPUData {
 	t?: number
 	/** processes using this GPU (gpu-monitoring fork addition) */
 	procs?: GPUProcess[]
+	/** fan speed (%) -- absent when the card reports none, which is not the same as 0 (gpu-monitoring fork addition) */
+	fan?: number
+	/** power limit (w) (gpu-monitoring fork addition) */
+	pl?: number
 }
 
 export interface GPUProcess {

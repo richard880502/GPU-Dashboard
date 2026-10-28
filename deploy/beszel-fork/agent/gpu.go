@@ -269,8 +269,34 @@ func (gm *GPUManager) parseNvidiaData(output []byte) bool {
 		gpu.Usage += usage
 		gpu.Power += power
 		gpu.Count++
+		// fork: fan speed (%) and power limit (W); columns 7 and 8 are absent
+		// in older output, and nil (not 0) when the card reports N/A
+		gpu.FanSpeed, gpu.PowerLimit = nil, nil
+		if len(fields) > 7 {
+			gpu.FanSpeed = parseNvidiaSmiOptional(fields[7])
+		}
+		if len(fields) > 8 {
+			gpu.PowerLimit = parseNvidiaSmiOptional(fields[8])
+		}
 	}
 	return valid
+}
+
+// parseNvidiaSmiOptional parses a numeric nvidia-smi CSV column that may be
+// unavailable. Cards without a fan, or without power management, print
+// "[N/A]", "[Not Supported]" or "[Insufficient Permissions]" (older drivers
+// "N/A"); all of those, and an empty field, mean "no value" and return nil.
+// A real 0 returns a pointer to 0.
+func parseNvidiaSmiOptional(field string) *float64 {
+	field = strings.TrimSpace(field)
+	if field == "" || strings.HasPrefix(field, "[") || strings.EqualFold(field, "N/A") {
+		return nil
+	}
+	v, err := strconv.ParseFloat(field, 64)
+	if err != nil || v < 0 {
+		return nil
+	}
+	return &v
 }
 
 // parseAmdData parses the output of rocm-smi and updates the GPUData map
@@ -433,6 +459,8 @@ func (gm *GPUManager) updateInstantaneousValues(gpuAvg *system.GPUData, gpu *sys
 	gpuAvg.Temperature = utils.TwoDecimals(gpu.Temperature)
 	gpuAvg.MemoryUsed = utils.TwoDecimals(gpu.MemoryUsed)
 	gpuAvg.MemoryTotal = utils.TwoDecimals(gpu.MemoryTotal)
+	gpuAvg.FanSpeed = gpu.FanSpeed
+	gpuAvg.PowerLimit = gpu.PowerLimit
 }
 
 // storeSnapshot saves the current GPU state for this cache key
@@ -511,7 +539,7 @@ func (gm *GPUManager) startNvidiaSmiCollector(intervalSeconds string) {
 		bufSize: 10 * 1024,
 		cmdArgs: []string{
 			"-l", intervalSeconds,
-			"--query-gpu=index,name,temperature.gpu,memory.used,memory.total,utilization.gpu,power.draw",
+			"--query-gpu=index,name,temperature.gpu,memory.used,memory.total,utilization.gpu,power.draw,fan.speed,power.limit",
 			"--format=csv,noheader,nounits",
 		},
 		parse: gm.parseNvidiaData,

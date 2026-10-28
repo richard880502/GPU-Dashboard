@@ -171,3 +171,54 @@ func TestZeroValueJSONMatchesV1(t *testing.T) {
 		})
 	}
 }
+
+// gpu-monitoring fork: FanSpeed / PowerLimit are pointers so "no reading"
+// (nil, key omitted) differs from a real 0 on every transport the data takes
+// (agent -> hub as CBOR, hub -> browser as JSON).
+func TestGPUDataFanAndPowerLimitTransport(t *testing.T) {
+	f := func(v float64) *float64 { return &v }
+	gpus := map[string]GPUData{
+		"0": {Name: "GeForce RTX 4090", FanSpeed: f(51), PowerLimit: f(450)},
+		"1": {Name: "GeForce RTX 3090", FanSpeed: f(0), PowerLimit: f(350)}, // zero-fan mode
+		"2": {Name: "H100"},                                                 // N/A for both
+	}
+
+	for name, marshal := range map[string]func(any) ([]byte, error){
+		"json_v1": json.Marshal,
+		"json_v2": func(value any) ([]byte, error) { return jsonv2.Marshal(value) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			data, err := marshal(gpus)
+			require.NoError(t, err)
+			var payload map[string]map[string]any
+			require.NoError(t, json.Unmarshal(data, &payload))
+			assert.Equal(t, float64(51), payload["0"]["fan"])
+			assert.Equal(t, float64(450), payload["0"]["pl"])
+			assert.Contains(t, payload["1"], "fan", "a real 0 must be kept")
+			assert.Equal(t, float64(0), payload["1"]["fan"])
+			assert.NotContains(t, payload["2"], "fan")
+			assert.NotContains(t, payload["2"], "pl")
+
+			var back map[string]GPUData
+			require.NoError(t, json.Unmarshal(data, &back))
+			assert.Equal(t, gpus, back)
+		})
+	}
+
+	data, err := cbor.Marshal(gpus)
+	require.NoError(t, err)
+	var back map[string]GPUData
+	require.NoError(t, cbor.Unmarshal(data, &back))
+	assert.Equal(t, gpus, back)
+	require.NotNil(t, back["1"].FanSpeed)
+	assert.Equal(t, 0.0, *back["1"].FanSpeed)
+	assert.Nil(t, back["2"].FanSpeed)
+
+	// an older agent's payload (no keys 102/103) decodes to nil, not 0
+	old, err := cbor.Marshal(map[string]any{"0": map[int]any{0: "GeForce RTX 4090", 3: 12.5}})
+	require.NoError(t, err)
+	var oldBack map[string]GPUData
+	require.NoError(t, cbor.Unmarshal(old, &oldBack))
+	assert.Nil(t, oldBack["0"].FanSpeed)
+	assert.Nil(t, oldBack["0"].PowerLimit)
+}

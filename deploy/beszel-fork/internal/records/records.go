@@ -282,6 +282,10 @@ func AverageSystemStatsSlice(records []system.Stats) system.Stats {
 	var fanSums map[string]uint64
 	fanCount := uint64(0)
 	zfsPoolCounts := make(map[string]uint64)
+	// gpu-monitoring fork: per-GPU fan speed is averaged over the samples that
+	// reported one, power limit keeps the largest value seen
+	gpuFanSums := make(map[string]float64)
+	gpuFanCounts := make(map[string]float64)
 	zfsCapacityCounts := make(map[string]uint64)
 
 	// Accumulate totals
@@ -471,6 +475,14 @@ func AverageSystemStatsSlice(records []system.Stats) system.Stats {
 				gpu.Usage += value.Usage
 				gpu.Power += value.Power
 				gpu.Count += value.Count
+				if value.FanSpeed != nil {
+					gpuFanSums[id] += *value.FanSpeed
+					gpuFanCounts[id]++
+				}
+				if value.PowerLimit != nil && (gpu.PowerLimit == nil || *value.PowerLimit > *gpu.PowerLimit) {
+					limit := *value.PowerLimit
+					gpu.PowerLimit = &limit
+				}
 
 				if value.Engines != nil {
 					if gpu.Engines == nil {
@@ -587,6 +599,10 @@ func AverageSystemStatsSlice(records []system.Stats) system.Stats {
 			gpu.Usage = twoDecimals(gpu.Usage / count)
 			gpu.Power = twoDecimals(gpu.Power / count)
 			gpu.Count = twoDecimals(gpu.Count / count)
+			if n := gpuFanCounts[id]; n > 0 {
+				fan := twoDecimals(gpuFanSums[id] / n)
+				gpu.FanSpeed = &fan
+			}
 
 			if gpu.Engines != nil {
 				for engineKey := range gpu.Engines {
