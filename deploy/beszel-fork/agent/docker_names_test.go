@@ -159,6 +159,9 @@ func TestGetDockerStatsNamesContainers(t *testing.T) {
 			fmt.Fprint(w, body)
 		case strings.HasPrefix(path, "/containers/") && strings.HasSuffix(path, "/stats"):
 			fmt.Fprint(w, `{"memory_stats":{"usage":1048576}}`)
+		case strings.HasPrefix(path, "/containers/") && strings.HasSuffix(path, "/json"):
+			// inspect, only used for the main process PID (gpu-monitoring fork)
+			fmt.Fprint(w, `{"State":{"Pid":4242}}`)
 		default:
 			t.Errorf("unexpected path: %s", path)
 		}

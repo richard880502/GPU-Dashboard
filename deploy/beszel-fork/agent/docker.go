@@ -69,6 +69,7 @@ type dockerManager struct {
 	excludeContainers    []string                    // Patterns to exclude containers by name
 	nameTemplate         *containerNameTemplate      // Optional template to build container names from labels
 	usingPodman          bool                        // Whether the Docker Engine API is running on Podman
+	pidCache             *containerPidCache          // Cached main process PIDs (gpu-monitoring fork)
 
 	registryClient       *http.Client                  // Client for registry requests; nil uses a client with a 10-second timeout
 	imageUpdatesDisabled bool                          // Whether image update checks are disabled by configuration
@@ -176,6 +177,12 @@ func (dm *dockerManager) getDockerStats(cacheTimeMs uint16) ([]*container.Stats,
 		resolveContainerNames(dm.apiContainerList, dm.nameTemplate, dm.shouldExcludeContainer)
 	}
 
+	// gpu-monitoring fork: main process PIDs, cached (see container_pid.go)
+	if dm.pidCache == nil {
+		dm.pidCache = newContainerPidCache(dm.inspectPid)
+	}
+	dm.pidCache.beginRound()
+
 	for _, ctr := range dm.apiContainerList {
 		ctr.IdShort = ctr.Id[:12]
 
@@ -186,6 +193,7 @@ func (dm *dockerManager) getDockerStats(cacheTimeMs uint16) ([]*container.Stats,
 		}
 
 		dm.validIds[ctr.IdShort] = struct{}{}
+		dm.pidCache.note(ctr.IdShort, ctr.State, ctr.Status)
 		// check if container is less than 1 minute old (possible restart)
 		// note: can't use Created field because it's not updated on restart
 		if strings.Contains(ctr.Status, "second") {
@@ -205,6 +213,10 @@ func (dm *dockerManager) getDockerStats(cacheTimeMs uint16) ([]*container.Stats,
 			}
 		}(ctr)
 	}
+
+	// gpu-monitoring fork: drop vanished containers from the PID cache and start
+	// a background look-up if any PID is due (never blocks this round)
+	dm.pidCache.endRound()
 
 	dm.wg.Wait()
 
@@ -230,6 +242,7 @@ func (dm *dockerManager) getDockerStats(cacheTimeMs uint16) ([]*container.Stats,
 		if _, exists := dm.validIds[id]; !exists {
 			delete(dm.containerStatsMap, id)
 		} else {
+			v.Pid = dm.pidCache.pid(id)
 			stats = append(stats, v)
 		}
 	}
