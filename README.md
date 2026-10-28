@@ -15,7 +15,7 @@ This repository contains the Beszel fork, GPU exporters, Docker Compose files, a
 - PID → Linux user attribution
 - PID → Docker container attribution
 - PID → Kubernetes / CRI container and pod attribution
-- Per-GPU process drill-down in the Beszel UI
+- Per-GPU process drill-down in the Beszel UI (PID, user, container, the container's published ports, VRAM, utilization)
 - SMART disk monitoring through the Beszel agent
 - Optional Slack live GPU dashboard
 - Docker Compose based deployment with published GHCR images
@@ -914,6 +914,13 @@ the Docker API or `crictl` (`k8s:<namespace>/<pod>/<container>`), or
 `deploy/standalone/upgrade-agent.py` and the compose templates set all three.
 After upgrading a node, gpu-process-exporter can be removed:
 `docker rm -f gpu-process-exporter`.
+
+The GPU panel's **Ports** column shows the host ports a container publishes,
+as `host→container` (`18000→8000`, `127.0.0.1:9000→9000`, `53→53/udp`;
+consecutive ports are merged into a range, more than three fold into `+N`,
+hover for the full list). `host network` means the container listens on the
+host's ports directly and has no mapping to list; `—` is a host or Kubernetes
+process, or a node whose agent is older than this column.
 
 # Why the Beszel fork exists
 

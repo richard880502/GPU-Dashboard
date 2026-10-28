@@ -561,6 +561,9 @@ func (dm *dockerManager) updateContainerStats(ctr *container.ApiInfo, cacheTimeM
 	stats.Image = ctr.Image
 	stats.UpdateAvailable = updateAvailable
 
+	// gpu-monitoring fork: must run before convertContainerPortsToString,
+	// which nils ctr.Ports. Always assigned so a removed mapping clears.
+	stats.PortMap = formatPortMap(ctr.Ports, ctr.HostConfig.NetworkMode)
 	if len(ctr.Ports) > 0 {
 		stats.Ports = convertContainerPortsToString(ctr)
 	}

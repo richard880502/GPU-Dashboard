@@ -2063,10 +2063,7 @@ func TestAnsiEscapePattern(t *testing.T) {
 }
 
 func TestConvertContainerPortsToString(t *testing.T) {
-	type port = struct {
-		PublicPort uint16
-		IP         string
-	}
+	type port = container.ApiPort
 	tests := []struct {
 		name     string
 		ports    []port
@@ -2169,10 +2166,7 @@ func TestConvertContainerPortsToString(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctr := &container.ApiInfo{}
 			for _, p := range tt.ports {
-				ctr.Ports = append(ctr.Ports, struct {
-					PublicPort uint16
-					IP         string
-				}{PublicPort: p.PublicPort, IP: p.IP})
+				ctr.Ports = append(ctr.Ports, p)
 			}
 			result := convertContainerPortsToString(ctr)
 			assert.Equal(t, tt.expected, result)

@@ -7,6 +7,7 @@ import { getPagePath } from "@nanostores/router"
 import { t } from "@lingui/core/macro"
 import { Trans } from "@lingui/react/macro"
 import { pb } from "@/lib/api"
+import { parsePortMap } from "@/lib/container-ports"
 import { $allSystemsById } from "@/lib/stores"
 import { MeterState, SystemStatus } from "@/lib/enums"
 import type { ContainerRecord, GPUProcess } from "@/types"
@@ -275,6 +276,25 @@ async function fetchGpuRows(): Promise<GpuRow[]> {
 	return rows
 }
 
+// Published ports of the container behind a GPU process ("host→container").
+// host-network containers have no mapping to list, and host / k8s processes or
+// agents older than the portMap field have no data: those show a dash.
+function ProcessPorts({ value }: { value?: string }) {
+	const view = parsePortMap(value)
+	if (view.kind === "none") {
+		return <span className="text-muted-foreground">—</span>
+	}
+	if (view.kind === "host") {
+		return <span className="text-muted-foreground">host network</span>
+	}
+	return (
+		<span className="tabular-nums" title={view.full}>
+			{view.shown.join(", ")}
+			{view.hiddenCount > 0 && <span className="text-muted-foreground"> +{view.hiddenCount}</span>}
+		</span>
+	)
+}
+
 function GpuProcessesSheet({
 	row,
 	systemName,
@@ -288,6 +308,39 @@ function GpuProcessesSheet({
 	setOpen: (open: boolean) => void
 	onOpenContainer: (systemId: string, containerName: string) => void
 }) {
+	// container name -> published ports, read when the panel opens: the GPU
+	// process rows only carry the container's name. Ports rarely change, so
+	// there is no live subscription.
+	const [portMaps, setPortMaps] = useState<Record<string, string>>({})
+	const systemId = row?.systemId
+	useEffect(() => {
+		if (!open || !systemId) {
+			return
+		}
+		let cancelled = false
+		pb.collection<Pick<ContainerRecord, "name" | "portMap">>("containers")
+			.getFullList({
+				filter: pb.filter("system = {:system}", { system: systemId }),
+				fields: "name,portMap",
+				// a recreated container keeps its name: the newest record wins below
+				sort: "updated",
+			})
+			.then((records) => {
+				if (cancelled) {
+					return
+				}
+				const byName: Record<string, string> = {}
+				for (const record of records) {
+					byName[record.name] = record.portMap ?? ""
+				}
+				setPortMaps(byName)
+			})
+			.catch(() => !cancelled && setPortMaps({}))
+		return () => {
+			cancelled = true
+		}
+	}, [open, systemId])
+
 	return (
 		<Sheet open={open} onOpenChange={setOpen}>
 			<SheetContent className="w-full sm:max-w-160 p-2">
@@ -307,6 +360,7 @@ function GpuProcessesSheet({
 									<th className="font-normal py-2 pe-4">PID</th>
 									<th className="font-normal py-2 pe-4">User</th>
 									<th className="font-normal py-2 pe-4">Container</th>
+									<th className="font-normal py-2 pe-4">{t({ message: "Ports", context: "Container ports" })}</th>
 									<th className="font-normal py-2 pe-4">VRAM</th>
 									<th className="font-normal py-2 pe-4">VRAM %</th>
 									<th className="font-normal py-2 pe-4">Util %</th>
@@ -319,6 +373,9 @@ function GpuProcessesSheet({
 										<td className="py-2 pe-4">{proc.un ?? "-"}</td>
 										<td className="py-2 pe-4">
 											<ProcessContainerLabel value={proc.c} systemId={row.systemId} onOpenContainer={onOpenContainer} />
+										</td>
+										<td className="py-2 pe-4">
+											<ProcessPorts value={portMaps[proc.c]} />
 										</td>
 										<td className="py-2 pe-4 tabular-nums">{proc.mu ? `${decimalString(proc.mu, 0)} MiB` : "-"}</td>
 										<td className="py-2 pe-4 tabular-nums">{proc.mp ? `${decimalString(proc.mp, 1)}%` : "0%"}</td>
