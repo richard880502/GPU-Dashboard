@@ -2850,3 +2850,19 @@ msgstr "风扇转速"
 #. gpu-monitoring fork
 msgid "Power / limit"
 msgstr "功耗 / 上限"
+
+#. gpu-monitoring fork
+msgid "All servers"
+msgstr "所有服务器"
+
+#. gpu-monitoring fork
+msgid "Filter by server"
+msgstr "按服务器筛选"
+
+#. gpu-monitoring fork
+msgid "Show only this server"
+msgstr "只显示此服务器"
+
+#. gpu-monitoring fork
+msgid "Show only the selected servers (none selected shows all)"
+msgstr "只显示勾选的服务器（未勾选则显示全部）"

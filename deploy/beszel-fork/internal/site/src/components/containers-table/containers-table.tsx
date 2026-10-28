@@ -37,7 +37,7 @@ import { cn, getServerDotColor, useBrowserStorage } from "@/lib/utils"
 import { Sheet, SheetTitle, SheetHeader, SheetContent, SheetDescription } from "../ui/sheet"
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog"
 import { Button } from "@/components/ui/button"
-import { $allSystemsById, $showLogTimestamps } from "@/lib/stores"
+import { $allSystemsById, $showLogTimestamps, $systems } from "@/lib/stores"
 import { ChevronDownIcon, ChevronUpIcon, LoaderCircleIcon, MaximizeIcon, RefreshCwIcon, XIcon } from "lucide-react"
 import { Separator } from "../ui/separator"
 import { $router, Link } from "../router"
@@ -46,6 +46,9 @@ import { useStore } from "@nanostores/react"
 import { getPagePath } from "@nanostores/router"
 import { LogsDisplay, LogsFullscreenDialog, LogsIconButton, LogsTimestampToggle } from "@/components/logs-display"
 import { getLogTimestampDecorations } from "@/lib/logs"
+import { SystemFilter } from "@/components/containers-table/system-filter"
+import { countBySystem, filterBySystems, matchesTerms, resolveSystemIds, withSystemsParam } from "@/lib/containers-filter"
+import { $containerSystems } from "@/lib/containers-filter-store"
 
 const syntaxTheme = "github-dark-dimmed"
 
@@ -135,8 +138,33 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 		})
 	}, [])
 
+	// gpu-monitoring fork: narrow the all-containers list to some servers (URL + local storage)
+	const selectedNames = useStore($containerSystems)
+	const systems = useStore($systems)
+	const selectedIds = useMemo(() => (systemId ? [] : resolveSystemIds(selectedNames, systems)), [systemId, selectedNames, systems])
+	const selectionKey = selectedIds.join(",")
+	const tableData = useMemo(() => filterBySystems(data ?? [], selectedIds), [data, selectionKey])
+	const systemCounts = useMemo(() => countBySystem(data), [data])
+
+	// keep the selection in the address bar, so a reload or a shared link shows the same list
+	useEffect(() => {
+		if (systemId) return
+		const apply = (names: readonly string[]) => {
+			const { pathname, search, hash } = window.location
+			const next = withSystemsParam(search, names)
+			if (next !== search) window.history.replaceState(window.history.state, "", pathname + next + hash)
+		}
+		apply($containerSystems.get())
+		return $containerSystems.listen(apply)
+	}, [systemId])
+
+	// a different server selection starts from the first page
+	useEffect(() => {
+		resetPageIndex()
+	}, [selectionKey])
+
 	const table = useReactTable({
-		data: data ?? [],
+		data: tableData,
 		columns: containerChartCols.filter((col) => (systemId ? col.id !== "system" : true)),
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
@@ -182,10 +210,7 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 			const ports = container.ports ?? ""
 			const searchString = `${systemName} ${id} ${name} ${healthLabel} ${status} ${image} ${ports}`.toLowerCase()
 
-			return (filterValue as string)
-				.toLowerCase()
-				.split(" ")
-				.every((term) => searchString.includes(term))
+			return matchesTerms(searchString, filterValue as string)
 		},
 	})
 
@@ -204,25 +229,28 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 							<Trans>Click on a container to view more information.</Trans>
 						</CardDescription>
 					</div>
-					<div className="relative ms-auto w-full max-w-full md:w-64">
-						<Input
-							placeholder={t`Filter...`}
-							value={globalFilter}
-							onChange={(e) => table.setGlobalFilter(e.target.value)}
-							className="ps-4 pe-10 w-full"
-						/>
-						{globalFilter && (
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon"
-								aria-label={t`Clear`}
-								className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground"
-								onClick={() => table.setGlobalFilter("")}
-							>
-								<XIcon className="h-4 w-4" />
-							</Button>
-						)}
+					<div className="ms-auto flex w-full max-w-full items-center gap-2 md:w-auto">
+						{!systemId && <SystemFilter counts={systemCounts} />}
+						<div className="relative w-full md:w-64">
+							<Input
+								placeholder={t`Filter...`}
+								value={globalFilter}
+								onChange={(e) => table.setGlobalFilter(e.target.value)}
+								className="ps-4 pe-10 w-full"
+							/>
+							{globalFilter && (
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									aria-label={t`Clear`}
+									className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground"
+									onClick={() => table.setGlobalFilter("")}
+								>
+									<XIcon className="h-4 w-4" />
+								</Button>
+							)}
+						</div>
 					</div>
 				</div>
 			</CardHeader>
