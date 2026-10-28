@@ -85,7 +85,7 @@
 #     docker compose -f beszel-agent-compose.yml up -d
 services:
   beszel-agent:
-    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.10.0
+    image: ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.10.1
     container_name: beszel-agent
     restart: unless-stopped
     network_mode: host
@@ -109,6 +109,12 @@ services:
       # directory inside containers, so it has to be mounted explicitly.
       # x86 only: drop this line on ARM hosts (e.g. DGX Spark), which have none.
       - /sys/devices/virtual/powercap:/host/powercap:ro
+      # No powercap directory (CPU newer than the kernel's RAPL driver, e.g.
+      # Xeon 6 on RHEL 9.2: dmesg "intel_rapl_common: driver does not support
+      # CPU family 6 model 173")? Drop the powercap line above and instead
+      # (agent v2.10.1+) read the energy counter from the msr module:
+      #   host: sudo modprobe msr && echo msr | sudo tee /etc/modules-load.d/msr.conf
+      #   here: add `- /dev/cpu:/dev/cpu` under devices: (SYS_RAWIO is set above)
       - beszel_agent_data:/var/lib/beszel-agent
       # Direct (non-nested) CRI_SOCKET_PATH hosts need this too, matching
       # whatever path CRI_SOCKET_PATH is set to -- see the comment above.

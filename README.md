@@ -163,7 +163,7 @@ adds the CPU power (RAPL) mount on x86 hosts, and switches back to the old
 container if the new one does not stay up. Print the command first, then run it:
 
 ```bash
-IMG=ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.10.0
+IMG=ghcr.io/richard880502/gpu-dashboard/beszel-agent-nvidia:v2.10.1
 ssh 192.168.1.77 "python3 - $IMG" < deploy/standalone/upgrade-agent.py        # dry run
 ssh 192.168.1.77 "python3 - $IMG --run" < deploy/standalone/upgrade-agent.py  # upgrade
 ssh 192.168.1.77 docker rm beszel-agent-old   # once the system is up in the hub again
@@ -171,6 +171,21 @@ ssh 192.168.1.77 docker rm beszel-agent-old   # once the system is up in the hub
 
 Add `--smart /dev/nvme0,/dev/nvme1` (see `lsblk -d`) if the agent has no disks
 mapped yet; the SMART page stays stale without them.
+
+**CPU power without powercap (agent v2.10.1+).** A CPU newer than the host
+kernel's RAPL driver has no `/sys/devices/virtual/powercap` (e.g. Xeon 6 on
+RHEL 9.2; `dmesg` says `intel_rapl_common: driver does not support CPU family 6
+model 173`), and Docker then fails to create the powercap mount. The counter
+itself still works: the agent reads it from the `msr` module, once per CPU
+socket, and sums the sockets. Remove the powercap mount and instead:
+
+```bash
+sudo modprobe msr && echo msr | sudo tee /etc/modules-load.d/msr.conf   # host, once
+```
+
+then add `- /dev/cpu:/dev/cpu` under `devices:` of the agent (it already has
+`SYS_RAWIO`). The agent log shows `CPU power from MSR` when it works; a host
+where powercap exists keeps using it.
 
 ---
 
