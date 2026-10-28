@@ -172,10 +172,11 @@ function groupRows(rows: GpuRow[], systems: Record<string, { name: string; statu
 	return groups.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 }
 
-// Bar fill by how full it is: calm blue, amber when getting high, red when
-// nearly full. Memory fills up sooner than it hurts, so it warns later.
+// Bar fill by how full it is: green, amber when getting high, red when nearly
+// full -- the same three colors as the state dot and the temperature. Memory
+// fills up sooner than it hurts, so it warns later.
 function barColor(value: number, warn: number, crit: number) {
-	return value >= crit ? "bg-red-500" : value >= warn ? "bg-amber-500" : "bg-blue-500"
+	return value >= crit ? "bg-red-500" : value >= warn ? "bg-amber-500" : "bg-emerald-500"
 }
 
 // Power draw next to its limit: amber from 90% of the limit, red at or above it
@@ -219,14 +220,11 @@ function availabilityLabel(availability: GpuAvailability) {
 	}
 }
 
-function StatusBadge({ availability, className }: { availability: GpuAvailability; className?: string }) {
-	const { dot, text } = AVAILABILITY[availability]
-	return (
-		<span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium", text, className)}>
-			<span className={cn("size-2 shrink-0 rounded-full", dot)} aria-hidden="true" />
-			{availabilityLabel(availability)}
-		</span>
-	)
+// The state on a card is the dot alone; the word is its tooltip and accessible
+// name. The legend in the header explains the colors.
+function StatusDot({ availability }: { availability: GpuAvailability }) {
+	const label = availabilityLabel(availability)
+	return <span role="img" aria-label={label} title={label} className={cn("block size-3 rounded-full", AVAILABILITY[availability].dot)} />
 }
 
 // A thin progress bar: role=progressbar for assistive tech, the width eases
@@ -293,13 +291,13 @@ function Panel({
 // One GPU as a slim card in a single-column list. Reading order, left to
 // right: state, free VRAM, GPU + readings, memory panel, utilization panel.
 // From lg up it is one row on a fixed column template, so every card's free
-// VRAM, bars and chevron line up with the cards above and below it (state and
-// free-VRAM columns are fixed width, so a long state like "Idle, memory held"
-// cannot push the rest sideways; memory and utilization are equal columns).
+// VRAM, bars and chevron line up with the cards above and below it (state dot
+// and free-VRAM columns are fixed width; memory and utilization are equal
+// columns).
 // Below lg the same items wrap: state + free VRAM first, then the GPU line,
 // then the two panels side by side (also equal width).
 // Clicking the card opens the processes panel.
-const CARD_COLUMNS = "lg:grid-cols-[8rem_5.5rem_minmax(11rem,1.3fr)_minmax(11rem,1fr)_minmax(11rem,1fr)_1rem]"
+const CARD_COLUMNS = "lg:grid-cols-[0.75rem_5.5rem_minmax(11rem,1.3fr)_minmax(11rem,1fr)_minmax(11rem,1fr)_1rem]"
 
 function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOpen: () => void }) {
 	const free = row.availability === "free"
@@ -324,8 +322,8 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 		>
 			<div className={cn("flex flex-col gap-2 lg:grid lg:items-center lg:gap-x-3", CARD_COLUMNS)}>
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 lg:contents">
-					<div className="w-32 shrink-0 lg:order-1 lg:w-auto">
-						<StatusBadge availability={row.availability} />
+					<div className="flex shrink-0 items-center lg:order-1">
+						<StatusDot availability={row.availability} />
 					</div>
 					<div className="w-20 shrink-0 text-center leading-tight lg:order-2 lg:w-auto">
 						<div className="text-[11px] text-slate-500 dark:text-neutral-400">{t`Free VRAM`}</div>
