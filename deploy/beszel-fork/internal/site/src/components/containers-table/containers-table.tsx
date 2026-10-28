@@ -48,6 +48,7 @@ import { LogsDisplay, LogsFullscreenDialog, LogsIconButton, LogsTimestampToggle 
 import { getLogTimestampDecorations } from "@/lib/logs"
 import { SystemFilter } from "@/components/containers-table/system-filter"
 import { countBySystem, filterBySystems, matchesTerms, resolveSystemIds, withSystemsParam } from "@/lib/containers-filter"
+import { pidSearchText } from "@/lib/container-pids"
 import { $containerSystems } from "@/lib/containers-filter-store"
 
 const syntaxTheme = "github-dark-dimmed"
@@ -86,7 +87,7 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 			pb.collection<ContainerRecord>("containers")
 				.getList(0, 2000, {
 					fields:
-						"id,name,image,updatable,ports,cpu,memory,net,health,status,system,updated,gpuPid,gpuMemMiB,gpuMemPercent,gpuUtilPercent",
+						"id,name,image,updatable,ports,cpu,memory,net,health,status,system,updated,pid,gpuPid,gpuMemMiB,gpuMemPercent,gpuUtilPercent",
 					filter: systemId ? pb.filter("system={:system}", { system: systemId }) : undefined,
 				})
 				.then(({ items }) => {
@@ -208,7 +209,8 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 			const healthLabel = ContainerHealthLabels[container.health as ContainerHealth] ?? ""
 			const image = container.image ?? ""
 			const ports = container.ports ?? ""
-			const searchString = `${systemName} ${id} ${name} ${healthLabel} ${status} ${image} ${ports}`.toLowerCase()
+			const pids = pidSearchText(container.pid, container.gpuPid)
+			const searchString = `${systemName} ${id} ${name} ${healthLabel} ${status} ${image} ${ports} ${pids}`.toLowerCase()
 
 			return matchesTerms(searchString, filterValue as string)
 		},

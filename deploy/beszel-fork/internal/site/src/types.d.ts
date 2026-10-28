@@ -395,6 +395,8 @@ export interface ContainerRecord extends RecordModel {
 	status: string
 	updated: number
 	// gpu-monitoring fork addition (not upstream)
+	/** main process PID as the host sees it (docker inspect State.Pid); 0 or absent when unknown */
+	pid?: number
 	gpuPid?: string
 	gpuMemMiB?: number
 	gpuMemPercent?: number

@@ -223,6 +223,9 @@ type Stats struct {
 	// containers, shown in the GPU process panel. Ports (above) keeps only the
 	// host side for the Containers page.
 	PortMap string `json:"-" cbor:"105,keyasint,omitzero"`
+	// Pid is the container's main process PID as the host sees it (docker
+	// inspect State.Pid), shown on the Containers page; 0 when unknown.
+	Pid uint32 `json:"-" cbor:"106,keyasint,omitzero"`
 	// PrevCpu     [2]uint64    `json:"-"`
 	CpuSystem    uint64       `json:"-"`
 	CpuContainer uint64       `json:"-"`

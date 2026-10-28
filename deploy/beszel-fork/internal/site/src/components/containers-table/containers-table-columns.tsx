@@ -19,6 +19,7 @@ import { Badge } from "../ui/badge"
 import { t } from "@lingui/core/macro"
 import { $allSystemsById, $longestSystemName } from "@/lib/stores"
 import { $containerSystems, setContainerSystems } from "@/lib/containers-filter-store"
+import { parseContainerPids, pidSortValue } from "@/lib/container-pids"
 import { useStore } from "@nanostores/react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 
@@ -171,13 +172,30 @@ export const containerChartCols: ColumnDef<ContainerRecord>[] = [
 		},
 	},
 	{
+		// the container's main process PID (as the host sees it) and, tagged GPU, the
+		// PIDs of its processes that use a GPU. The id stays gpuPid so saved column
+		// sizes and visibility keep working.
 		id: "gpuPid",
-		accessorFn: (record) => record.gpuPid || undefined,
-		sortingFn: (a, b) => Number(a.original.gpuPid?.split(",")[0] ?? 0) - Number(b.original.gpuPid?.split(",")[0] ?? 0),
+		accessorFn: (record) => pidSortValue(record.pid, record.gpuPid),
+		size: 150,
+		minSize: 100,
 		header: ({ column }) => <HeaderButton column={column} name={t`PID`} Icon={HashIcon} />,
-		cell: ({ getValue }) => {
-			const val = getValue() as string | undefined
-			return <span className="ms-1.5 tabular-nums">{val ?? <span className="text-muted-foreground">-</span>}</span>
+		cell: ({ row }) => {
+			const { main, gpu } = parseContainerPids(row.original.pid, row.original.gpuPid)
+			if (main === undefined && !gpu.length) {
+				return <span className="ms-1.5 text-muted-foreground">-</span>
+			}
+			return (
+				<div className="ms-1.5 flex items-center gap-1.5 tabular-nums">
+					{main !== undefined && <span title={t`Main process PID, as the host sees it`}>{main}</span>}
+					{gpu.length > 0 && (
+						<span className="inline-flex items-center gap-1" title={t`PIDs of the processes using a GPU`}>
+							<span className="rounded bg-muted px-1 text-[10px] font-medium uppercase leading-4 text-muted-foreground">GPU</span>
+							{gpu.join(", ")}
+						</span>
+					)}
+				</div>
+			)
 		},
 	},
 	{

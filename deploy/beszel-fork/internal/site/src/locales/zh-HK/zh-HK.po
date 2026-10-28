@@ -2866,3 +2866,11 @@ msgstr "只顯示此伺服器"
 #. gpu-monitoring fork
 msgid "Show only the selected servers (none selected shows all)"
 msgstr "只顯示剔選的伺服器（未剔選則顯示全部）"
+
+#. gpu-monitoring fork
+msgid "Main process PID, as the host sees it"
+msgstr "主程序 PID（主機上看到的）"
+
+#. gpu-monitoring fork
+msgid "PIDs of the processes using a GPU"
+msgstr "使用 GPU 的程序 PID"
