@@ -300,7 +300,7 @@ function Panel({
 // Below xl the same items wrap: state + free VRAM + the GPU line first, then
 // the two panels side by side (also equal width).
 // Clicking the card opens the processes panel.
-const CARD_COLUMNS = "xl:grid-cols-[0.75rem_5.5rem_3.75rem_minmax(20rem,1.2fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_1rem]"
+const CARD_COLUMNS = "xl:grid-cols-[0.75rem_3.5rem_3rem_16.25rem_minmax(12rem,1fr)_minmax(12rem,1fr)_1rem]"
 
 function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOpen: () => void }) {
 	const free = row.availability === "free"
@@ -323,7 +323,7 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 				offline && "opacity-60"
 			)}
 		>
-			<div className={cn("flex flex-col gap-1.5 xl:grid xl:items-center xl:gap-x-6 2xl:gap-x-8", CARD_COLUMNS)}>
+			<div className={cn("flex flex-col gap-1.5 xl:grid xl:items-center xl:gap-x-5 2xl:gap-x-6", CARD_COLUMNS)}>
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1 xl:contents">
 					<div className="flex shrink-0 items-center xl:order-1">
 						<StatusDot availability={row.availability} />
@@ -343,8 +343,8 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 						GPU {row.index}
 					</div>
 					<div className="min-w-[12rem] flex-1 xl:order-4 xl:min-w-0">
-						<div className="flex min-w-0 flex-col gap-0.5 leading-tight">
-							<span className="block min-w-0 truncate text-sm leading-4 text-slate-500 dark:text-neutral-400" title={row.name}>
+						<div className="flex min-w-0 flex-col items-center gap-0.5 leading-tight">
+							<span className="block max-w-full min-w-0 truncate text-center text-sm leading-4 text-slate-500 dark:text-neutral-400" title={row.name}>
 								{row.name}
 							</span>
 							<span className="flex items-center gap-x-3 whitespace-nowrap text-xs leading-4 tabular-nums text-slate-600 dark:text-neutral-300">
@@ -375,7 +375,7 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 								) : (
 									<span className="w-[5.85rem]" aria-hidden="true" />
 								)}
-								<span className="w-[3.25rem]">
+								<span className="w-[2.6rem]">
 									{row.procs.length} {t`Processes`}
 								</span>
 							</span>
