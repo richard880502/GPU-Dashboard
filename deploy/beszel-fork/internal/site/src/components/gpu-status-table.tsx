@@ -239,7 +239,7 @@ function Bar({ value, label, color }: { value: number; label: string; color: str
 			aria-valuemin={0}
 			aria-valuemax={100}
 			aria-valuenow={Math.round(pct)}
-			className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-300 dark:bg-[#2b2b2e]"
+			className="h-1 w-full overflow-hidden rounded-full bg-slate-300 dark:bg-[#2b2b2e]"
 		>
 			<div
 				className={cn("h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none", color)}
@@ -250,8 +250,9 @@ function Bar({ value, label, color }: { value: number; label: string; color: str
 }
 
 // The inset panel: one step darker than the card around it (muted on the
-// light theme, background on the dark one), label and value on one line with
-// the bar right under them.
+// light theme, background on the dark one). One line: icon + label, the bar,
+// then the value. Label and value have fixed widths so the bars of every card
+// start and end in the same place.
 function Panel({
 	Icon,
 	label,
@@ -270,34 +271,36 @@ function Panel({
 	return (
 		<div
 			className={cn(
-				"min-w-0 rounded-[14px] border border-slate-300/70 bg-slate-200 px-3 py-2 dark:border-white/[0.06] dark:bg-[#0e0e0f]",
+				"flex h-7 min-w-0 items-center gap-2 rounded-lg border border-slate-300/70 bg-slate-200 px-2.5 dark:border-white/[0.06] dark:bg-[#0e0e0f]",
 				className
 			)}
 		>
-			<div className="flex items-center justify-between gap-2 text-xs">
-				<span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-slate-500 dark:text-neutral-400">
-					<Icon className="size-3" aria-hidden="true" />
-					{label}
-				</span>
-				<span className="whitespace-nowrap font-semibold tabular-nums text-slate-900 dark:text-neutral-50" title={valueTitle}>
-					{value}
-				</span>
-			</div>
-			{children}
+			<span className="inline-flex w-[3.25rem] shrink-0 items-center gap-1 whitespace-nowrap text-[11px] text-slate-500 dark:text-neutral-400">
+				<Icon className="size-3 shrink-0" aria-hidden="true" />
+				<span className="truncate">{label}</span>
+			</span>
+			<div className="min-w-8 flex-1">{children}</div>
+			<span
+				className="w-[4.5rem] shrink-0 whitespace-nowrap text-right text-xs font-semibold tabular-nums text-slate-900 dark:text-neutral-50"
+				title={valueTitle}
+			>
+				{value}
+			</span>
 		</div>
 	)
 }
 
-// One GPU as a slim card in a single-column list. Reading order, left to
-// right: state, free VRAM, GPU + readings, memory panel, utilization panel.
-// From lg up it is one row on a fixed column template, so every card's free
-// VRAM, bars and chevron line up with the cards above and below it (state dot
-// and free-VRAM columns are fixed width; memory and utilization are equal
+// One GPU as a compact card in a single-column list (about 44px high). Reading
+// order, left to right: state, free VRAM, GPU number, a two-line cell (model,
+// then temperature / fan / power / processes), memory panel, utilization panel.
+// From xl (1280px) up it is one row on a fixed column template, so every card's
+// free VRAM, bars and chevron line up with the cards above and below it (state
+// dot and free-VRAM columns are fixed width; memory and utilization are equal
 // columns).
-// Below lg the same items wrap: state + free VRAM first, then the GPU line,
-// then the two panels side by side (also equal width).
+// Below xl the same items wrap: state + free VRAM + the GPU line first, then
+// the two panels side by side (also equal width).
 // Clicking the card opens the processes panel.
-const CARD_COLUMNS = "lg:grid-cols-[0.75rem_5.5rem_minmax(11rem,1.3fr)_minmax(11rem,1fr)_minmax(11rem,1fr)_1rem]"
+const CARD_COLUMNS = "xl:grid-cols-[0.75rem_3.5rem_3rem_16.25rem_minmax(12rem,1fr)_minmax(12rem,1fr)_1rem]"
 
 function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOpen: () => void }) {
 	const free = row.availability === "free"
@@ -315,72 +318,78 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 				}
 			}}
 			className={cn(
-				"cursor-pointer rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-3 py-2.5 shadow-sm transition-colors hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+				"cursor-pointer rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-3 py-1 shadow-sm transition-colors hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 				"dark:border-white/[0.07] dark:from-[#222225] dark:to-[#1b1b1d] dark:shadow-none dark:hover:border-white/20",
 				offline && "opacity-60"
 			)}
 		>
-			<div className={cn("flex flex-col gap-2 lg:grid lg:items-center lg:gap-x-3", CARD_COLUMNS)}>
-				<div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 lg:contents">
-					<div className="flex shrink-0 items-center lg:order-1">
+			<div className={cn("flex flex-col gap-1.5 xl:grid xl:items-center xl:gap-x-5 2xl:gap-x-6", CARD_COLUMNS)}>
+				<div className="flex flex-wrap items-center gap-x-3 gap-y-1 xl:contents">
+					<div className="flex shrink-0 items-center xl:order-1">
 						<StatusDot availability={row.availability} />
 					</div>
-					<div className="w-20 shrink-0 text-center leading-tight lg:order-2 lg:w-auto">
-						<div className="text-[11px] text-slate-500 dark:text-neutral-400">{t`Free VRAM`}</div>
+					<div className="w-20 shrink-0 text-center xl:order-2 xl:w-auto">
+						<div className="text-[10px] leading-3 text-slate-500 dark:text-neutral-400">{t`Free VRAM`}</div>
 						<div
 							className={cn(
-								"text-sm font-semibold tabular-nums text-slate-900 dark:text-neutral-50",
+								"text-sm font-semibold leading-4 tabular-nums text-slate-900 dark:text-neutral-50",
 								free && "text-emerald-600 dark:text-emerald-400"
 							)}
 						>
 							{row.memTotal && row.availability !== "offline" ? `${toGB(freeMem(row))} GB` : "-"}
 						</div>
 					</div>
-					<div className="min-w-[12rem] flex-1 lg:order-3 lg:min-w-0">
-						<div className="flex min-w-0 items-baseline gap-2">
-							<span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-slate-900 dark:text-neutral-50">
-								GPU {row.index}
-							</span>
-							<span className="min-w-0 truncate text-sm text-slate-500 dark:text-neutral-400" title={row.name}>
+					<div className="shrink-0 whitespace-nowrap text-center text-base font-semibold tabular-nums text-slate-900 dark:text-neutral-50 xl:order-3">
+						GPU {row.index}
+					</div>
+					<div className="min-w-[12rem] flex-1 xl:order-4 xl:min-w-0">
+						<div className="flex min-w-0 flex-col items-center gap-0.5 leading-tight">
+							<span className="block max-w-full min-w-0 truncate text-center text-sm leading-4 text-slate-500 dark:text-neutral-400" title={row.name}>
 								{row.name}
 							</span>
-						</div>
-						<div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs tabular-nums text-slate-600 dark:text-neutral-300">
-							{row.temp !== undefined && (
-								<span className={cn("inline-flex items-center gap-0.5", tempColor(row.temp))} title={t`Temperature`}>
-									<ThermometerIcon className="size-3" aria-hidden="true" />
-									{row.temp.toFixed(0)}°C
+							<span className="flex items-center gap-x-3 whitespace-nowrap text-xs leading-4 tabular-nums text-slate-600 dark:text-neutral-300">
+								{row.temp !== undefined ? (
+									<span className={cn("inline-flex w-[2.95rem] items-center gap-1", tempColor(row.temp))} title={t`Temperature`}>
+										<ThermometerIcon className="size-3" aria-hidden="true" />
+										{row.temp.toFixed(0)}°C
+									</span>
+								) : (
+									<span className="w-[2.95rem]" aria-hidden="true" />
+								)}
+								{row.fan !== undefined ? (
+									<span className="inline-flex w-[2.6rem] items-center gap-1" title={t`Fan speed`}>
+										<FanIcon className="size-3" aria-hidden="true" />
+										{row.fan.toFixed(0)}%
+									</span>
+								) : (
+									<span className="w-[2.6rem]" aria-hidden="true" />
+								)}
+								{row.power !== undefined ? (
+									<span
+										className={cn("inline-flex w-[5.85rem] items-center gap-1", powerColor(row.power, row.powerLimit))}
+										title={row.powerLimit ? t`Power / limit` : "Power"}
+									>
+										<ZapIcon className="size-3" aria-hidden="true" />
+										{row.power.toFixed(0)}W{row.powerLimit ? ` / ${row.powerLimit.toFixed(0)}W` : ""}
+									</span>
+								) : (
+									<span className="w-[5.85rem]" aria-hidden="true" />
+								)}
+								<span className="w-[2.6rem]">
+									{row.procs.length} {t`Processes`}
 								</span>
-							)}
-							{row.fan !== undefined && (
-								<span className="inline-flex items-center gap-0.5" title={t`Fan speed`}>
-									<FanIcon className="size-3" aria-hidden="true" />
-									{row.fan.toFixed(0)}%
-								</span>
-							)}
-							{row.power !== undefined && (
-								<span
-									className={cn("inline-flex items-center gap-0.5", powerColor(row.power, row.powerLimit))}
-									title={row.powerLimit ? t`Power / limit` : "Power"}
-								>
-									<ZapIcon className="size-3" aria-hidden="true" />
-									{row.power.toFixed(0)}W{row.powerLimit ? ` / ${row.powerLimit.toFixed(0)}W` : ""}
-								</span>
-							)}
-							<span>
-								{row.procs.length} {t`Processes`}
 							</span>
 						</div>
 					</div>
-					<ChevronRightIcon className="ms-auto size-4 shrink-0 text-slate-400 dark:text-neutral-500 lg:order-6 lg:ms-0" aria-hidden="true" />
+					<ChevronRightIcon className="ms-auto size-4 shrink-0 text-slate-400 dark:text-neutral-500 xl:order-7 xl:ms-0" aria-hidden="true" />
 				</div>
-				<div className="grid grid-cols-2 gap-2 lg:contents">
+				<div className="grid grid-cols-2 gap-2 xl:contents">
 					<Panel
 						Icon={MemoryStickIcon}
 						label={t`Memory`}
 						value={`${toGB(row.memUsed)}/${toGB(row.memTotal)} GB`}
 						valueTitle={`${decimalString(row.memUsed, 0)}MiB / ${decimalString(row.memTotal, 0)}MiB`}
-						className="lg:order-4"
+						className="xl:order-5"
 					>
 						<Bar value={memPct} label={t`Memory`} color={barColor(memPct, 70, 90)} />
 					</Panel>
@@ -388,7 +397,7 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 						Icon={GaugeIcon}
 						label={t({ message: "Utilization", context: "GPU card" })}
 						value={`${decimalString(row.util, row.util >= 10 ? 0 : 1)}%`}
-						className="lg:order-5"
+						className="xl:order-6"
 					>
 						<Bar value={row.util} label={t({ message: "Utilization", context: "GPU card" })} color={barColor(row.util, 50, 85)} />
 					</Panel>
@@ -700,7 +709,7 @@ export function GpuStatusTable() {
 
 	return (
 		<Card>
-			<CardHeader className="pb-4 px-2 sm:px-6 max-sm:pt-5 max-sm:pb-1">
+			<CardHeader className="pb-2 px-2 sm:px-6 max-sm:pt-5 max-sm:pb-1">
 				<div className="px-2 sm:px-1 flex items-center justify-between gap-2">
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
 						<CardTitle className="flex items-center gap-2">
@@ -732,7 +741,7 @@ export function GpuStatusTable() {
 					</Button>
 				</div>
 			</CardHeader>
-			<CardContent className="space-y-3 max-sm:p-2">
+			<CardContent className="space-y-2 max-sm:p-2">
 				{groups.map((group) => {
 					const isOpen = !collapsed[group.systemId]
 					const status = systems[group.systemId]?.status
@@ -741,15 +750,15 @@ export function GpuStatusTable() {
 					const free = group.gpus.filter((g) => g.availability === "free").length
 					const total = group.gpus.length
 					return (
-						<section key={group.systemId} className="space-y-2">
+						<section key={group.systemId} className="space-y-1">
 							<div
 								className={cn(
-									"flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border bg-muted/30 px-3 py-2 hover:bg-muted/60",
+									"flex cursor-pointer flex-nowrap items-center gap-x-3 rounded-lg border bg-muted/30 px-2.5 py-1 text-sm hover:bg-muted/60",
 									offline && "opacity-60"
 								)}
 								onClick={toggle}
 							>
-								<span className="inline-flex items-center gap-2 font-medium">
+								<span className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-semibold">
 									<button
 										type="button"
 										aria-expanded={isOpen}
@@ -760,7 +769,7 @@ export function GpuStatusTable() {
 											toggle()
 										}}
 									>
-										<ChevronRightIcon className={cn("size-4 transition-transform", isOpen && "rotate-90")} />
+										<ChevronRightIcon className={cn("size-3.5 transition-transform", isOpen && "rotate-90")} />
 									</button>
 									<span
 										className={cn(
@@ -782,14 +791,14 @@ export function GpuStatusTable() {
 								</span>
 								<span
 									className={cn(
-										"text-sm tabular-nums",
+										"whitespace-nowrap text-xs tabular-nums",
 										free > 0 ? "font-medium text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
 									)}
 								>
 									{t`${free} / ${total} free`}
 								</span>
-								<span className="ms-auto flex flex-wrap items-center gap-x-4 text-xs tabular-nums text-muted-foreground">
-									<span title="Average utilization">
+								<span className="ms-auto flex flex-nowrap items-center gap-x-3 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+									<span title="Average utilization" className="max-md:hidden">
 										{t({ message: "Utilization", context: "GPU card" })} {decimalString(group.avgUtil, 0)}%
 									</span>
 									<span title={t`Most free VRAM on a single GPU`}>
@@ -803,7 +812,7 @@ export function GpuStatusTable() {
 								</span>
 							</div>
 							{isOpen && (
-								<div className="flex flex-col gap-2">
+								<div className="flex flex-col gap-1.5">
 									{group.gpus.map((row) => {
 										const key = `${row.systemId}-${row.index}`
 										return (
