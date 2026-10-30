@@ -290,9 +290,9 @@ function Panel({
 	)
 }
 
-// One GPU as a compact card in a single-column list (about 42px high). Reading
-// order, left to right: state, free VRAM, GPU + model + readings on one line,
-// memory panel, utilization panel.
+// One GPU as a compact card in a single-column list (about 44px high). Reading
+// order, left to right: state, free VRAM, GPU number, a two-line cell (model,
+// then temperature / fan / power / processes), memory panel, utilization panel.
 // From xl (1280px) up it is one row on a fixed column template, so every card's
 // free VRAM, bars and chevron line up with the cards above and below it (state
 // dot and free-VRAM columns are fixed width; memory and utilization are equal
@@ -300,7 +300,7 @@ function Panel({
 // Below xl the same items wrap: state + free VRAM + the GPU line first, then
 // the two panels side by side (also equal width).
 // Clicking the card opens the processes panel.
-const CARD_COLUMNS = "xl:grid-cols-[0.75rem_5.5rem_minmax(24rem,2.4fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_1rem]"
+const CARD_COLUMNS = "xl:grid-cols-[0.75rem_5.5rem_3.75rem_minmax(20rem,1.2fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_1rem]"
 
 function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOpen: () => void }) {
 	const free = row.availability === "free"
@@ -318,7 +318,7 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 				}
 			}}
 			className={cn(
-				"cursor-pointer rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-3 py-1.5 shadow-sm transition-colors hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+				"cursor-pointer rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-3 py-1 shadow-sm transition-colors hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 				"dark:border-white/[0.07] dark:from-[#222225] dark:to-[#1b1b1d] dark:shadow-none dark:hover:border-white/20",
 				offline && "opacity-60"
 			)}
@@ -339,43 +339,41 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 							{row.memTotal && row.availability !== "offline" ? `${toGB(freeMem(row))} GB` : "-"}
 						</div>
 					</div>
-					<div className="min-w-[12rem] flex-1 xl:order-3 xl:min-w-0">
-						<div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-0.5 xl:flex-nowrap xl:gap-x-8">
-							<span className="flex min-w-0 items-baseline gap-2">
-								<span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-slate-900 dark:text-neutral-50">
-									GPU {row.index}
-								</span>
-								<span className="min-w-0 truncate text-sm text-slate-500 dark:text-neutral-400" title={row.name}>
-									{row.name}
-								</span>
+					<div className="shrink-0 whitespace-nowrap text-center text-base font-semibold tabular-nums text-slate-900 dark:text-neutral-50 xl:order-3">
+						GPU {row.index}
+					</div>
+					<div className="min-w-[12rem] flex-1 xl:order-4 xl:min-w-0">
+						<div className="flex min-w-0 flex-col gap-0.5 leading-tight">
+							<span className="block min-w-0 truncate text-sm leading-4 text-slate-500 dark:text-neutral-400" title={row.name}>
+								{row.name}
 							</span>
-							<span className="flex shrink-0 items-center gap-x-4 whitespace-nowrap text-xs tabular-nums text-slate-600 dark:text-neutral-300 xl:gap-x-8">
+							<span className="flex items-center gap-x-3 whitespace-nowrap text-xs leading-4 tabular-nums text-slate-600 dark:text-neutral-300">
 								{row.temp !== undefined ? (
-									<span className={cn("inline-flex w-12 items-center gap-1", tempColor(row.temp))} title={t`Temperature`}>
+									<span className={cn("inline-flex w-[2.95rem] items-center gap-1", tempColor(row.temp))} title={t`Temperature`}>
 										<ThermometerIcon className="size-3" aria-hidden="true" />
 										{row.temp.toFixed(0)}°C
 									</span>
 								) : (
-									<span className="w-12" aria-hidden="true" />
+									<span className="w-[2.95rem]" aria-hidden="true" />
 								)}
 								{row.fan !== undefined ? (
-									<span className="inline-flex w-11 items-center gap-1" title={t`Fan speed`}>
+									<span className="inline-flex w-[2.6rem] items-center gap-1" title={t`Fan speed`}>
 										<FanIcon className="size-3" aria-hidden="true" />
 										{row.fan.toFixed(0)}%
 									</span>
 								) : (
-									<span className="w-11" aria-hidden="true" />
+									<span className="w-[2.6rem]" aria-hidden="true" />
 								)}
 								{row.power !== undefined ? (
 									<span
-										className={cn("inline-flex w-[6.25rem] items-center gap-1", powerColor(row.power, row.powerLimit))}
+										className={cn("inline-flex w-[5.85rem] items-center gap-1", powerColor(row.power, row.powerLimit))}
 										title={row.powerLimit ? t`Power / limit` : "Power"}
 									>
 										<ZapIcon className="size-3" aria-hidden="true" />
 										{row.power.toFixed(0)}W{row.powerLimit ? ` / ${row.powerLimit.toFixed(0)}W` : ""}
 									</span>
 								) : (
-									<span className="w-[6.25rem]" aria-hidden="true" />
+									<span className="w-[5.85rem]" aria-hidden="true" />
 								)}
 								<span className="w-[3.25rem]">
 									{row.procs.length} {t`Processes`}
@@ -383,7 +381,7 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 							</span>
 						</div>
 					</div>
-					<ChevronRightIcon className="ms-auto size-4 shrink-0 text-slate-400 dark:text-neutral-500 xl:order-6 xl:ms-0" aria-hidden="true" />
+					<ChevronRightIcon className="ms-auto size-4 shrink-0 text-slate-400 dark:text-neutral-500 xl:order-7 xl:ms-0" aria-hidden="true" />
 				</div>
 				<div className="grid grid-cols-2 gap-2 xl:contents">
 					<Panel
@@ -391,7 +389,7 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 						label={t`Memory`}
 						value={`${toGB(row.memUsed)}/${toGB(row.memTotal)} GB`}
 						valueTitle={`${decimalString(row.memUsed, 0)}MiB / ${decimalString(row.memTotal, 0)}MiB`}
-						className="xl:order-4"
+						className="xl:order-5"
 					>
 						<Bar value={memPct} label={t`Memory`} color={barColor(memPct, 70, 90)} />
 					</Panel>
@@ -399,7 +397,7 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 						Icon={GaugeIcon}
 						label={t({ message: "Utilization", context: "GPU card" })}
 						value={`${decimalString(row.util, row.util >= 10 ? 0 : 1)}%`}
-						className="xl:order-5"
+						className="xl:order-6"
 					>
 						<Bar value={row.util} label={t({ message: "Utilization", context: "GPU card" })} color={barColor(row.util, 50, 85)} />
 					</Panel>
