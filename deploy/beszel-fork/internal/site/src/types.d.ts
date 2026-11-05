@@ -407,6 +407,16 @@ export interface ContainerRecord extends RecordModel {
 	portMap?: string
 }
 
+// One record per monitored node, service and local clock-hour with observed
+// GPU activity. hour_start is canonical UTC; day follows the Hub's timezone.
+export interface ServiceGPUActiveHourRecord extends RecordModel {
+	system: string
+	system_name: string
+	service: string
+	day: string
+	hour_start: string
+}
+
 // Permanent daily service usage. Time integrals are in seconds and MiB-seconds.
 export interface ServiceUsageDailyRecord extends RecordModel {
 	system: string
