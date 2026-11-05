@@ -1001,3 +1001,35 @@ The earlier Prometheus + Grafana stack has been retired. Detailed implementation
 - Hub database backup is not automated yet.
 - AlertManager-style notification routing is not included.
 - Triton and vLLM application-level metrics are not included yet.
+
+## Services Analytics (CPU / GPU monthly usage)
+
+The Hub fork includes a Services Analytics page at `/services-analytics` (sign in first).
+It reports **CPU core-hours**, **GPU utilization-equivalent hours**, and **VRAM
+GiB-hours** by service, month and monitored host. Unlike Beszel's regular
+30-day `container_stats` history, the daily `service_usage_daily` totals
+are retained indefinitely.
+
+- Build the **Hub**, not every monitored Agent, after checking out the
+  `feature/service-resource-usage-history` branch.
+- Back up the Hub's persistent `/beszel_data` before upgrading because the
+  first start applies new PocketBase migrations.
+- New statistics begin after the first successful pair of polls; earlier lost
+  GPU process history is not reconstructed.
+- To group multiple container replicas under one service, put this entry
+  in the Hub Compose environment file:
+
+  ```dotenv
+  SERVICE_USAGE_GROUPS='{"vllm":["vllm-*"],"whisperx":["whisperx-*","asr-*"]}'
+  ```
+
+  The `deploy/standalone/beszel-hub-compose.yml` passes the setting through
+  to the Hub. Restart the Hub after changing it. Without a mapping, each
+  container name is reported as an independent service.
+- The dashboard reports the *measured* CPU/GPU durations beside each service.
+  A period without sufficient telemetry is unknown, not zero.
+- GPU utilization-equivalent hours are **not** GPU reservation/billing hours.
+
+See [the implementation and metric definition](docs/service-usage-history.md)
+for build commands, calculation caveats and the migration plan.
+
