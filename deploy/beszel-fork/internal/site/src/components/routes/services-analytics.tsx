@@ -9,9 +9,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { FooterRepoLink } from "@/components/footer-repo-link"
 import { pb } from "@/lib/api"
 import { $allSystemsById } from "@/lib/stores"
-import type { ServiceUsageDailyRecord } from "@/types"
+import type { ServiceGPUActiveHourRecord, ServiceUsageDailyRecord } from "@/types"
 
-type Metric = "cpu" | "gpu" | "vram"
+type Metric = "cpu" | "gpu" | "vram" | "active"
 
 function localMonth(date = new Date()) {
 	return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
@@ -30,13 +30,14 @@ interface UsageTotals {
 	cpu: number
 	gpu: number
 	vram: number
+	active: number
 	observed: number
 	cpuKnown: number
 	gpuKnown: number
 	samples: number
 }
 function emptyTotals(): UsageTotals {
-	return { cpu: 0, gpu: 0, vram: 0, observed: 0, cpuKnown: 0, gpuKnown: 0, samples: 0 }
+	return { cpu: 0, gpu: 0, vram: 0, active: 0, observed: 0, cpuKnown: 0, gpuKnown: 0, samples: 0 }
 }
 function accumulate(target: UsageTotals, row: ServiceUsageDailyRecord) {
 	target.cpu += hours(row.cpu_core_seconds || 0)
@@ -51,6 +52,7 @@ const metricDetails: Record<Metric, { label: string; unit: string }> = {
 	cpu: { label: "CPU core-hours", unit: "core-h" },
 	gpu: { label: "GPU utilization-equivalent hours", unit: "GPU-h" },
 	vram: { label: "VRAM usage", unit: "GiB-h" },
+	active: { label: "GPU active clock-hours", unit: "service-h" },
 }
 
 export default function ServicesAnalytics() {
@@ -60,6 +62,7 @@ export default function ServicesAnalytics() {
 	const [system, setSystem] = useState("all")
 	const [metric, setMetric] = useState<Metric>("gpu")
 	const [rows, setRows] = useState<ServiceUsageDailyRecord[]>([])
+	const [activeRows, setActiveRows] = useState<ServiceGPUActiveHourRecord[]>([])
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState("")
 
@@ -73,14 +76,23 @@ export default function ServicesAnalytics() {
 			try {
 				const from = `${month}-01`
 				const to = `${monthAfter(month)}-01`
-				const found = await pb.collection<ServiceUsageDailyRecord>("service_usage_daily").getFullList({
-					filter: pb.filter("day >= {:from} && day < {:to}", { from, to }),
-					sort: "day",
-					fields: "id,system,system_name,service,day,seconds,cpu_core_seconds,cpu_known_seconds,gpu_util_seconds,gpu_known_seconds,vram_mib_seconds,samples",
-					requestKey: "services-analytics",
-				})
+				const [found, activeHours] = await Promise.all([
+					pb.collection<ServiceUsageDailyRecord>("service_usage_daily").getFullList({
+						filter: pb.filter("day >= {:from} && day < {:to}", { from, to }),
+						sort: "day",
+						fields: "id,system,system_name,service,day,seconds,cpu_core_seconds,cpu_known_seconds,gpu_util_seconds,gpu_known_seconds,vram_mib_seconds,samples",
+						requestKey: "services-analytics",
+					}),
+					pb.collection<ServiceGPUActiveHourRecord>("service_gpu_active_hours").getFullList({
+						filter: pb.filter("day >= {:from} && day < {:to}", { from, to }),
+						sort: "day",
+						fields: "id,system,system_name,service,day,hour_start",
+						requestKey: "services-analytics-active-hours",
+					}),
+				])
 				if (active) {
 					setRows(found)
+					setActiveRows(activeHours)
 					setError("")
 					setLoading(false)
 				}
@@ -100,14 +112,14 @@ export default function ServicesAnalytics() {
 		}
 	}, [month])
 
-	const services = useMemo(() => [...new Set(rows.map((r) => r.service))].sort(), [rows])
+	const services = useMemo(() => [...new Set([...rows, ...activeRows].map((r) => r.service))].sort(), [rows, activeRows])
 	const hosts = useMemo(() => {
 		const result = new Map<string, string>()
-		for (const r of rows) {
+		for (const r of [...rows, ...activeRows]) {
 			if (r.system) result.set(r.system, systems[r.system]?.name || r.system_name || r.system)
 		}
 		return [...result].sort((a, b) => a[1].localeCompare(b[1]))
-	}, [rows, systems])
+	}, [rows, activeRows, systems])
 
 	// Keep filters useful when changing the month.
 	useEffect(() => { if (service !== "all" && !services.includes(service)) setService("all") }, [service, services])
@@ -116,6 +128,10 @@ export default function ServicesAnalytics() {
 	const filtered = useMemo(
 		() => rows.filter((r) => (service === "all" || r.service === service) && (system === "all" || r.system === system)),
 		[rows, service, system],
+	)
+	const filteredActive = useMemo(
+		() => activeRows.filter((r) => (service === "all" || r.service === service) && (system === "all" || r.system === system)),
+		[activeRows, service, system],
 	)
 	const summary = useMemo(() => {
 		const totals = emptyTotals()
@@ -128,12 +144,25 @@ export default function ServicesAnalytics() {
 			if (!byService.has(row.service)) byService.set(row.service, emptyTotals())
 			accumulate(byService.get(row.service)!, row)
 		}
+		// Multiple replicas/hosts of the *same* service in the same clock-hour
+		// count once when viewing all servers; distinct services count separately.
+		const seen = new Set<string>()
+		for (const row of filteredActive) {
+			const key = JSON.stringify([row.service, row.hour_start])
+			if (seen.has(key)) continue
+			seen.add(key)
+			totals.active += 1
+			if (!byDay.has(row.day)) byDay.set(row.day, emptyTotals())
+			byDay.get(row.day)!.active += 1
+			if (!byService.has(row.service)) byService.set(row.service, emptyTotals())
+			byService.get(row.service)!.active += 1
+		}
 		return {
 			totals,
 			days: [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, values]) => ({ day: day.slice(5), ...values })),
 			services: [...byService.entries()].sort(([, a], [, b]) => b.gpu - a.gpu),
 		}
-	}, [filtered])
+	}, [filtered, filteredActive])
 
 	return (
 		<div className="space-y-5 pb-8">
@@ -164,10 +193,11 @@ export default function ServicesAnalytics() {
 			{error && <p role="alert" className="rounded-md border border-destructive p-3 text-sm text-destructive">{error}</p>}
 			{loading ? <p className="py-12 text-center text-muted-foreground">Loading service history…</p> : (
 				<>
-					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
 						{([
 							["CPU", summary.totals.cpu, "core-hours"],
 							["GPU", summary.totals.gpu, "utilization-equivalent hours"],
+							["GPU active hours", summary.totals.active, "active service-hour buckets"],
 							["VRAM", summary.totals.vram, "GiB-hours"],
 							["Recorded", summary.totals.observed, "service-hours"],
 						] as const).map(([title, amount, unit]) => (
@@ -192,7 +222,7 @@ export default function ServicesAnalytics() {
 										<CartesianGrid vertical={false} strokeDasharray="3 3" />
 										<XAxis dataKey="day" tick={{ fontSize: 12 }} />
 										<YAxis tick={{ fontSize: 12 }} width={60} />
-										<Tooltip formatter={(value) => [`${format(Number(value))} ${metricDetails[metric].unit}`, metricDetails[metric].label]} />
+										<Tooltip formatter={(value) => [`${format(Number(value), metric === "active" ? 0 : 2)} ${metricDetails[metric].unit}`, metricDetails[metric].label]} />
 										<Bar dataKey={metric} name={metricDetails[metric].label} fill="var(--chart-1)" radius={[3, 3, 0, 0]} />
 									</BarChart>
 								</ResponsiveContainer>
@@ -204,17 +234,17 @@ export default function ServicesAnalytics() {
 						<CardContent>
 							<div className="overflow-x-auto">
 								<Table>
-									<TableHeader><TableRow><TableHead>Service</TableHead><TableHead className="text-right">CPU core-h</TableHead><TableHead className="text-right">GPU-h</TableHead><TableHead className="text-right">VRAM GiB-h</TableHead><TableHead className="text-right">CPU measured (h)</TableHead><TableHead className="text-right">GPU measured (h)</TableHead></TableRow></TableHeader>
+									<TableHeader><TableRow><TableHead>Service</TableHead><TableHead className="text-right">CPU core-h</TableHead><TableHead className="text-right">GPU-h</TableHead><TableHead className="text-right">Active GPU h</TableHead><TableHead className="text-right">VRAM GiB-h</TableHead><TableHead className="text-right">CPU measured (h)</TableHead><TableHead className="text-right">GPU measured (h)</TableHead></TableRow></TableHeader>
 									<TableBody>
 										{summary.services.map(([name, totals]) => (
-											<TableRow key={name}><TableCell className="font-medium">{name}</TableCell><TableCell className="text-right tabular-nums">{format(totals.cpu)}</TableCell><TableCell className="text-right tabular-nums">{format(totals.gpu)}</TableCell><TableCell className="text-right tabular-nums">{format(totals.vram)}</TableCell><TableCell className="text-right tabular-nums">{format(totals.cpuKnown)}</TableCell><TableCell className="text-right tabular-nums">{format(totals.gpuKnown)}</TableCell></TableRow>
+											<TableRow key={name}><TableCell className="font-medium">{name}</TableCell><TableCell className="text-right tabular-nums">{format(totals.cpu)}</TableCell><TableCell className="text-right tabular-nums">{format(totals.gpu)}</TableCell><TableCell className="text-right tabular-nums">{format(totals.active, 0)}</TableCell><TableCell className="text-right tabular-nums">{format(totals.vram)}</TableCell><TableCell className="text-right tabular-nums">{format(totals.cpuKnown)}</TableCell><TableCell className="text-right tabular-nums">{format(totals.gpuKnown)}</TableCell></TableRow>
 										))}
-										{!summary.services.length && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">No services recorded.</TableCell></TableRow>}
+										{!summary.services.length && <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">No services recorded.</TableCell></TableRow>}
 									</TableBody>
 								</Table>
 							</div>
 							<p className="mt-4 text-xs text-muted-foreground">
-								CPU core-hours are measured from host-normalized container CPU share × logical CPUs × elapsed time. GPU-h measures sampled process utilization, not reserved GPU allocation time. Empty days indicate missing data, not zero usage. Data prior to enabling collection cannot be restored automatically. All totals are estimates at the monitor sampling cadence.
+								CPU core-hours are measured from host-normalized container CPU share × logical CPUs × elapsed time. GPU-h measures sampled process utilization, not reserved GPU allocation time. GPU active hours count one whole local clock-hour for each service with any observed GPU process / VRAM / utilization in that hour, even if active for only a few seconds. Replicas on multiple hosts in the same hour count once when all servers are selected. This is not actual runtime, reservation time or a billing metric. Empty days indicate missing data, not zero usage. Data prior to enabling collection cannot be restored automatically. All totals are estimates at the monitor sampling cadence.
 							</p>
 						</CardContent>
 					</Card>
