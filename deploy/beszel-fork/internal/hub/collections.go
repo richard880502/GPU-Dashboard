@@ -133,6 +133,16 @@ func setCollectionAuthSettings(app core.App) error {
 		return err
 	}
 
+	// Durable service usage contains workload identities and must respect
+	// the same per-system membership rules as the live container view.
+	// Orphaned system records remain stored but are not publicly readable.
+	if err := applyCollectionRules(app, []string{"service_usage_daily", "service_gpu_active_hours"}, collectionRules{
+		list: &systemScopedReadRule,
+		view: &systemScopedReadRule,
+	}); err != nil {
+		return err
+	}
+
 	// Alerts belong to their user and may only reference systems the user can access.
 	// The user and system of an existing alert cannot be changed through the API.
 	// Readonly users can still manage their own alerts, so these build on the read rule.

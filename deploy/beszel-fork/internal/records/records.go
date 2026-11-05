@@ -4,6 +4,8 @@ package records
 import (
 	"encoding/json"
 	"math"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/henrygd/beszel/internal/entities/container"
@@ -672,6 +674,9 @@ func AverageContainerStatsSlice(records [][]container.Stats) []container.Stats {
 		return []container.Stats{}
 	}
 	sums := make(map[string]*container.Stats)
+	// A GPU can change during a rollup window, so keep the union of GPU indices
+	// instead of silently dropping the attribution when downsampling.
+	indicesByContainer := make(map[string]map[string]struct{})
 	count := float64(len(records))
 
 	for _, containerStats := range records {
@@ -682,6 +687,20 @@ func AverageContainerStatsSlice(records [][]container.Stats) []container.Stats {
 			}
 			sums[stat.Name].Cpu += stat.Cpu
 			sums[stat.Name].Mem += stat.Mem
+			// Preserve the GPU fields in the 10m/20m/120m/480m retention tiers.
+			// Summing here and dividing by all record windows below treats a
+			// container absent from a window as zero usage for that window.
+			sums[stat.Name].GpuMemMiB += stat.GpuMemMiB
+			sums[stat.Name].GpuMemPercent += stat.GpuMemPercent
+			sums[stat.Name].GpuUtilPercent += stat.GpuUtilPercent
+			for _, index := range strings.Split(stat.GpuIndex, ",") {
+				index = strings.TrimSpace(index)
+				if index == "" { continue }
+				if indicesByContainer[stat.Name] == nil {
+					indicesByContainer[stat.Name] = make(map[string]struct{})
+				}
+				indicesByContainer[stat.Name][index] = struct{}{}
+			}
 			sentBytes := stat.Bandwidth[0]
 			recvBytes := stat.Bandwidth[1]
 			if sentBytes == 0 && recvBytes == 0 && (stat.NetworkSent != 0 || stat.NetworkRecv != 0) {
@@ -695,11 +714,20 @@ func AverageContainerStatsSlice(records [][]container.Stats) []container.Stats {
 
 	result := make([]container.Stats, 0, len(sums))
 	for _, value := range sums {
+		indices := make([]string, 0, len(indicesByContainer[value.Name]))
+		for index := range indicesByContainer[value.Name] {
+			indices = append(indices, index)
+		}
+		sort.Strings(indices)
 		result = append(result, container.Stats{
-			Name:      value.Name,
-			Cpu:       twoDecimals(value.Cpu / count),
-			Mem:       twoDecimals(value.Mem / count),
-			Bandwidth: [2]uint64{uint64(float64(value.Bandwidth[0]) / count), uint64(float64(value.Bandwidth[1]) / count)},
+			Name:           value.Name,
+			Cpu:            twoDecimals(value.Cpu / count),
+			Mem:            twoDecimals(value.Mem / count),
+			GpuMemMiB:      twoDecimals(value.GpuMemMiB / count),
+			GpuMemPercent:  twoDecimals(value.GpuMemPercent / count),
+			GpuUtilPercent: twoDecimals(value.GpuUtilPercent / count),
+			GpuIndex:       strings.Join(indices, ","),
+			Bandwidth:      [2]uint64{uint64(float64(value.Bandwidth[0]) / count), uint64(float64(value.Bandwidth[1]) / count)},
 		})
 	}
 	return result

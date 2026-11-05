@@ -65,6 +65,8 @@ services:
       - USER_EMAIL=${ACCOUNT_EMAIL:-wingene@internal.local}
       - USER_PASSWORD=${USER_PASSWORD:?set USER_PASSWORD (copy .env.example to .env first)}
       - UPDATE_INTERVAL_MS=5000
+      # Optional JSON mapping of container-name globs to stable service names.
+      - SERVICE_USAGE_GROUPS=${SERVICE_USAGE_GROUPS:-}
       - TZ=Asia/Taipei
     # Data dir moved off the NFS-shared /home mount onto this host's local
     # disk (2026-09-27). PocketBase's SQLite file needs reliable file locking,

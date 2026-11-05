@@ -23,6 +23,7 @@ import (
 	"github.com/henrygd/beszel/internal/entities/smart"
 	"github.com/henrygd/beszel/internal/entities/system"
 	"github.com/henrygd/beszel/internal/entities/systemd"
+	"github.com/henrygd/beszel/internal/records"
 	"github.com/henrygd/beszel/internal/entities/zfs"
 
 	"github.com/henrygd/beszel"
@@ -297,6 +298,13 @@ func (sys *System) createRecords(data *system.CombinedData) (*core.Record, error
 			if err := txApp.SaveNoValidate(containerStatsRecord); err != nil {
 				return err
 			}
+		}
+
+		// Persist service-level CPU/GPU time integrals with a durable cursor.
+		// This shares the container_stats transaction so failed updates cannot
+		// advance usage accounting without committing the underlying snapshot.
+		if err := records.RecordServiceUsage(txApp, systemRecord.Id, systemRecord.GetString("name"), time.Now().UTC(), data.Info.Threads, data.Containers, time.Local); err != nil {
+			return err
 		}
 
 		// Update systemd service records when the agent reports a fresh snapshot.
