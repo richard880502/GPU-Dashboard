@@ -96,6 +96,37 @@ Services → Usage Analytics: service selector, date range / month, daily and mo
 
 5. Access `http://<hub-host>:<port>/services-analytics` after authenticating.
 
+## GPU active clock-hours (additional, independent metric)
+
+The permanent `service_gpu_active_hours` collection tracks one **GPU-active
+clock-hour bucket** per monitored host / service / local calendar hour.
+The Hub inserts a marker on the first actual GPU-attributed poll in each
+clock-hour, even if GPU utilization is 0% but the process still holds VRAM.
+A CPU-only container with no GPU attribution is **not** GPU-active.
+
+- A service observed at 10:05 and again at 10:45 counts **1 hour**, not two.
+- Observed at 10:59 and 11:01 counts **2 hours**, even if total runtime
+  was only a few minutes.
+- 5% and 95% GPU utilization both count **1 active clock-hour** if the
+  service is observed during that hour.
+- Across replicas / hosts, the UI counts each **service + actual clock-hour**
+  once when All Servers is selected; filtering to a host restricts the count.
+- The hour key is the UTC instant of that *local* hour's start (distinct
+  for repeated DST hours), while the date key follows the Hub's `TZ`.
+- Collection writes happen in the same transaction as the sampling cursor,
+  so repeated polls/restarts do not duplicate an hour.
+- This is an hourly **presence/occupancy** metric: not an actual duration,
+  not GPU utilization-equivalent hours, not GPU allocation/billing time,
+  and not multiplied by physical GPU count.
+- Earlier `service_usage_daily` data cannot reveal which exact hours had
+  activity, so this indicator begins with the first GPU-attributed samples
+  after deploying the new migration. Historical backfill requires raw
+  `container_stats` samples where GPU attribution fields were preserved.
+
+Migrations are **additive**: migration 7 creates the new collection, leaving
+migration 6 and existing daily data intact. Its read access is restricted by
+the same system membership policy as other Services Analytics records.
+
 ## Metric semantics and limitations
 
 - **CPU core-hours** = Σ (per-container CPU% normalized to whole host / 100) × host logical CPU count × elapsed seconds / 3600.
