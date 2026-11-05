@@ -407,6 +407,25 @@ export interface ContainerRecord extends RecordModel {
 	portMap?: string
 }
 
+// Permanent daily service usage. Time integrals are in seconds and MiB-seconds.
+export interface ServiceUsageDailyRecord extends RecordModel {
+	system: string
+	system_name: string
+	service: string
+	day: string
+	seconds: number
+	cpu_core_seconds: number
+	cpu_known_seconds: number
+	cpu_host_seconds: number
+	gpu_util_seconds: number
+	gpu_known_seconds: number
+	vram_mib_seconds: number
+	peak_cpu_pct: number
+	peak_gpu_pct: number
+	peak_vram_mib: number
+	samples: number
+}
+
 // gpu-monitoring fork addition (not upstream): one row per system / GPU / day,
 // kept permanently (internal/records/gpu_power.go)
 export interface GpuPowerDailyRecord extends RecordModel {
