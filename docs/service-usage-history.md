@@ -1,6 +1,6 @@
 # Service CPU / GPU usage history (implementation plan)
 
-Status: **Phase 1 foundation committed; monthly service reports not implemented yet.**
+Status: **MVP implemented on feature/service-resource-usage-history.** Backend daily ingestion, PocketBase collection, persistent system-level cursor, monthly UI and collection access rules are committed. GitHub Actions CI must still pass before production rollout.
 
 ## Goal
 
@@ -62,11 +62,56 @@ Services → Usage Analytics: service selector, date range / month, daily and mo
 - End-to-end authenticated API access for allowed vs unrelated systems.
 - Monthly aggregates for partial months and sparse history.
 
-## Delivery phases
+## Delivered MVP
 
-- **Phase 1 (this branch):** repair existing container GPU history rollups + regression tests.
-- **Phase 2:** create durable service_usage_daily collection, service rules and transactional ingestion, with tests.
-- **Phase 3:** authenticated Hub API and Services Usage Analytics UI.
-- **Phase 4:** richer Compose/Kubernetes attribution, alerts and exports.
+- Existing container GPU usage, GPU memory and GPU index fields survive the standard 10m / 20m / 120m / 480m rollups.
+- New `service_usage_daily` stores per-system, per-service, per-calendar-day counters without the standard 30-day retention sweep.
+- New `service_usage_cursor` stores the most recently accounted poll timestamp for each system, written in the same transaction as the daily increment.
+- Each incoming system update integrates CPU share, GPU process utilization and VRAM samples, splitting at the Hub's configured local midnight.
+- `SERVICE_USAGE_GROUPS` environment mapping optionally groups replica container names into stable services. Without a mapping, each distinct container name is a service.
+- `/services-analytics` shows month, service and host filters, daily usage and per-service totals.
+- `service_usage_daily` reads obey system membership rules; the ingestion cursor is private.
+- No changes required to monitored agents for this initial feature.
 
-Do not enable long-term billing or treat values as precise service costs until measurement contracts and coverage have been validated against ground truth.
+## How to try it
+
+1. Check out `feature/service-resource-usage-history`.
+2. From `deploy/beszel-fork` run:
+
+   ```bash
+   bun install --cwd internal/site
+   bun run --cwd internal/site build
+   go test -tags='testing no_ui' ./internal/records/... ./internal/hub/...
+   docker build -f internal/dockerfile_hub -t beszel-hub-fork:usage-history .
+   ```
+
+3. Test against a **separate** Beszel data directory first; migrations create two new collections.
+4. Optionally set a Compose `.env` entry:
+
+   ```dotenv
+   SERVICE_USAGE_GROUPS='{"vllm-api":["vllm-api-*","vllm-api"],"whisperx":["asr-*","whisperx"]}'
+   ```
+
+   The Hub's `deploy/standalone/beszel-hub-compose.yml` forwards it to the Hub container. Exact container names are used when omitted. The first matching group in lexicographic order wins; avoid overlapping patterns.
+
+5. Access `http://<hub-host>:<port>/services-analytics` after authenticating.
+
+## Metric semantics and limitations
+
+- **CPU core-hours** = Σ (per-container CPU% normalized to whole host / 100) × host logical CPU count × elapsed seconds / 3600.
+- **GPU utilization-equivalent hours** = Σ (per-container sampled GPU process utilization% / 100) × elapsed seconds / 3600. It is not billable/reserved GPU allocation time. Multiple processes/GPUs may yield more than 1 GPU-equivalent per wall-clock hour.
+- **VRAM GiB-hours** = Σ (container sampled VRAM MiB × elapsed seconds) / 1024 / 3600.
+- **Recorded service-hours** sum observed intervals across services and nodes, not an always-on uptime percentage.
+- Counts begin with **the first subsequent valid pair of polls** after the feature is deployed. Historic lost GPU samples cannot be recovered automatically.
+- Gaps over two minutes are dropped; short gaps approximate workload usage using the latest sample.
+- GPU measurements with no process association are unknown, not a confirmed zero. Host processes not attributed to a tracked container are not included.
+- Daily boundaries use the Hub's `TZ` (Asia/Taipei in the supplied Compose). Month controls use the browser's current month.
+- CPU core-hours require a valid reported logical CPU count; the UI reports the measured CPU and GPU durations separately.
+- If a system is removed, associated records are retained under the collection but the standard membership rule prevents other users from viewing them.
+
+## Future improvements
+
+- Automatic Docker Compose labels and Kubernetes deployment/namespace identity.
+- Per-GPU physical utilization attribution rather than summed sampled process percentages.
+- Exports, period comparisons and quality-of-data alerts.
+- Hardened backfill/reconciliation from durable raw logs if historical events are later available.
