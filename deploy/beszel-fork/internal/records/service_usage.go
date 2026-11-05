@@ -99,12 +99,16 @@ func RecordServiceUsage(app core.App, systemID, systemName string, at time.Time,
     if atMS <= prevMS { return nil }
     cursor.Set("at_ms", atMS)
     if err := app.SaveNoValidate(cursor); err != nil { return err }
+    if loc == nil { loc = time.UTC }
+    usage := sumServiceUsage(samples)
+    // An active GPU is an observed event, not an estimated period. Count the
+    // hour of the current sample even for the very first poll or after an
+    // outage. Replayed/out-of-order polls were already rejected above.
+    if err := recordGPUActiveHours(app, systemID, systemName, at, usage, loc); err != nil { return err }
     if prevMS <= 0 { return nil }
     start := time.UnixMilli(prevMS)
     if at.Sub(start) > serviceUsageMaxGap { return nil }
-    usage := sumServiceUsage(samples)
     if len(usage) == 0 { return nil }
-    if loc == nil { loc = time.UTC }
     for start.Before(at) {
         local := start.In(loc)
         midnight := time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, loc)
@@ -157,4 +161,47 @@ func addServiceUsageDay(app core.App, systemID, systemName, service, day string,
     record.Set("peak_vram_mib", math.Max(record.GetFloat("peak_vram_mib"), sample.VRAMMiB))
     record.Set("samples", record.GetInt("samples")+1)
     return app.SaveNoValidate(record)
+}
+
+const ServiceGPUActiveHoursCollection = "service_gpu_active_hours"
+
+// hourStart returns the true instant at which the current local clock hour
+// began. Subtracting the elapsed minutes instead of using time.Date correctly
+// distinguishes the repeated 01:00 hour on a daylight-saving fall-back day.
+func gpuLocalHourStart(at time.Time, loc *time.Location) time.Time {
+    local := at.In(loc)
+    elapsed := time.Duration(local.Minute())*time.Minute +
+        time.Duration(local.Second())*time.Second +
+        time.Duration(local.Nanosecond())
+    return at.Add(-elapsed)
+}
+
+// recordGPUActiveHours stores *one* marker per host/service/clock-hour when
+// the actual sample attributes GPU usage to a service. A nonzero VRAM
+// allocation / GPU PID counts even when compute utilization is currently 0.
+// Purely CPU-running containers do not count. This metric intentionally bills
+// a one-second sighting as a full active-hour bucket; it is NOT GPU-h of
+// compute, reservation or actual runtime.
+func recordGPUActiveHours(app core.App, systemID, systemName string, at time.Time, samples map[string]ServiceUsageSample, loc *time.Location) error {
+    hourStart := gpuLocalHourStart(at, loc).UTC().Format(time.RFC3339)
+    day := at.In(loc).Format("2006-01-02")
+    coll, err := app.FindCachedCollectionByNameOrId(ServiceGPUActiveHoursCollection)
+    if err != nil { return err }
+
+    for service, sample := range samples {
+        if !sample.HasGPU { continue }
+        _, err := app.FindFirstRecordByFilter(coll,
+            "system = {:sys} && service = {:svc} && hour_start = {:hour}",
+            dbx.Params{"sys": systemID, "svc": service, "hour": hourStart})
+        if err == nil { continue }
+        if !errors.Is(err, sql.ErrNoRows) { return err }
+        record := core.NewRecord(coll)
+        record.Set("system", systemID)
+        record.Set("system_name", systemName)
+        record.Set("service", service)
+        record.Set("day", day)
+        record.Set("hour_start", hourStart)
+        if err := app.SaveNoValidate(record); err != nil { return err }
+    }
+    return nil
 }
