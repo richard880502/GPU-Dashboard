@@ -2,10 +2,10 @@
 package records
 
 import (
-	"sort"
-	"strings"
 	"encoding/json"
 	"math"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/henrygd/beszel/internal/entities/container"
