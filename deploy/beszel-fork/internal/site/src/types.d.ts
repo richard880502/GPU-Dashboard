@@ -9,6 +9,7 @@ declare global {
 		HUB_URL: string
 		UPDATE_INTERVAL_MS: number
 		OAUTH_DISABLE_POPUP: boolean
+		AUTO_LOGIN?: boolean
 	}
 }
 
