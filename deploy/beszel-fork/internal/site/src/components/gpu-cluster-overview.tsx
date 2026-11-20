@@ -1,120 +1,43 @@
-// gpu-monitoring fork addition (not upstream): a cluster-wide GPU summary
-// card for the home page, mirroring the "Cluster Overview" stat row of this
-// project's own Grafana dashboard (Servers / GPUs / GPU Occupancy / Avg GPU
-// Utilization / Avg VRAM Used) -- Beszel's systems list only carries each
-// system's single "highest gpu utilization" number, not per-GPU breakdown,
-// so this reads the latest full system_stats record per system instead.
-import { useEffect, useState } from "react"
-import { pb } from "@/lib/api"
+// Cluster-wide GPU summary derived from the same snapshot as the GPU status table.
+// The parent owns polling; this component never performs a duplicate API request.
+import { useMemo } from "react"
+import { useStore } from "@nanostores/react"
 import { SystemStatus } from "@/lib/enums"
-import { BUSY_UTIL_PCT, classifyGpu, parsePbDate } from "@/lib/gpu-availability"
+import { classifyGpu } from "@/lib/gpu-availability"
 import { $allSystemsById } from "@/lib/stores"
+import type { GpuRow } from "./gpu-status-table"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { GpuIcon } from "./ui/icons"
 
-interface GpuEntry {
-	n: string
-	mu: number
-	mt: number
-	u: number
-	procs?: { pid: string; c: string }[]
-}
-
-interface ClusterGpuStats {
-	servers: number
-	totalGpus: number
-	occupiedGpus: number
-	avgUtil: number
-	avgVram: number
-}
-
-async function fetchClusterGpuStats(): Promise<ClusterGpuStats> {
-	const statsRecords = await pb.collection("system_stats").getList(1, 200, {
-		filter: pb.filter("type = {:t}", { t: "1m" }),
-		sort: "-created",
-		fields: "system,stats,created",
-		requestKey: "gpu-cluster-overview",
-	})
-
-	// keep only the latest record per system (list is sorted newest first),
-	// and when each GPU last ran within the fetched history
-	type StatsRecord = { system: string; created: string; stats: { g?: Record<string, GpuEntry> } }
-	const latestBySystem = new Map<string, { system: string; at: number; g?: Record<string, GpuEntry> }>()
-	const busyAt = new Map<string, number>()
-	for (const rec of statsRecords.items as unknown as StatsRecord[]) {
-		const at = parsePbDate(rec.created)
-		if (!latestBySystem.has(rec.system)) {
-			latestBySystem.set(rec.system, { system: rec.system, at, ...rec.stats })
-		}
-		for (const [index, gpu] of Object.entries(rec.stats.g ?? {})) {
-			if ((gpu.u ?? 0) >= BUSY_UTIL_PCT) {
-				const key = `${rec.system}-${index}`
-				busyAt.set(key, Math.max(busyAt.get(key) ?? 0, at))
-			}
-		}
-	}
-	const systems = $allSystemsById.get()
-
-	let servers = 0
-	let totalGpus = 0
-	let occupiedGpus = 0
-	let utilSum = 0
-	let vramSum = 0
-	for (const { system, at, g } of latestBySystem.values()) {
-		const entries = Object.entries(g ?? {})
-		if (entries.length === 0) {
-			continue
-		}
-		servers++
-		for (const [index, gpu] of entries) {
+export function GpuClusterOverview({ rows }: { rows: GpuRow[] }) {
+	const systems = useStore($allSystemsById)
+	const stats = useMemo(() => {
+		const servers = new Set<string>()
+		let totalGpus = 0
+		let occupiedGpus = 0
+		let utilSum = 0
+		let vramSum = 0
+		for (const gpu of rows) {
+			servers.add(gpu.systemId)
 			totalGpus++
-			// "Occupied" = running or holding memory (lib/gpu-availability.ts),
-			// the same rule as the GPU status card. Process attribution alone
-			// would count a 100%-busy GPU as free whenever it fails.
 			const availability = classifyGpu(
-				{ at, util: gpu.u ?? 0, memUsed: gpu.mu ?? 0, memTotal: gpu.mt ?? 0, procs: gpu.procs?.length ?? 0 },
-				{ systemUp: systems[system]?.status === SystemStatus.Up, busyAt: busyAt.get(`${system}-${index}`) ?? 0 }
+				{ at: gpu.at, util: gpu.util, memUsed: gpu.memUsed, memTotal: gpu.memTotal, procs: gpu.procs.length },
+				{ systemUp: systems[gpu.systemId]?.status === SystemStatus.Up, busyAt: gpu.busyAt }
 			)
-			if (availability === "busy" || availability === "held") {
-				occupiedGpus++
-			}
-			utilSum += gpu.u ?? 0
-			vramSum += gpu.mt ? (gpu.mu / gpu.mt) * 100 : 0
+			if (availability === "busy" || availability === "held") occupiedGpus++
+			utilSum += gpu.util
+			vramSum += gpu.memTotal ? (gpu.memUsed / gpu.memTotal) * 100 : 0
 		}
-	}
-
-	return {
-		servers,
-		totalGpus,
-		occupiedGpus,
-		avgUtil: totalGpus ? utilSum / totalGpus : 0,
-		avgVram: totalGpus ? vramSum / totalGpus : 0,
-	}
-}
-
-export function GpuClusterOverview() {
-	const [stats, setStats] = useState<ClusterGpuStats | null>(null)
-
-	useEffect(() => {
-		let cancelled = false
-		function load() {
-			fetchClusterGpuStats().then((s) => {
-				if (!cancelled) {
-					setStats(s)
-				}
-			})
+		return {
+			servers: servers.size,
+			totalGpus,
+			occupiedGpus,
+			avgUtil: totalGpus ? utilSum / totalGpus : 0,
+			avgVram: totalGpus ? vramSum / totalGpus : 0,
 		}
-		load()
-		const interval = setInterval(load, 30_000) // matches the hub's agent-poll interval
-		return () => {
-			cancelled = true
-			clearInterval(interval)
-		}
-	}, [])
+	}, [rows, systems])
 
-	if (!stats || stats.totalGpus === 0) {
-		return null
-	}
+	if (stats.totalGpus === 0) return null
 
 	const tiles: { label: string; value: string }[] = [
 		{ label: "Servers", value: `${stats.servers}` },
@@ -123,7 +46,6 @@ export function GpuClusterOverview() {
 		{ label: "Avg GPU Utilization", value: `${stats.avgUtil.toFixed(1)}%` },
 		{ label: "Avg VRAM Used", value: `${stats.avgVram.toFixed(1)}%` },
 	]
-
 	return (
 		<Card>
 			<CardHeader className="pb-4 px-2 sm:px-6 max-sm:pt-5 max-sm:pb-1">
