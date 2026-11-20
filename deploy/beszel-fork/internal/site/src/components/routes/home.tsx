@@ -1,5 +1,5 @@
 import { useLingui } from "@lingui/react/macro"
-import { memo, Suspense, useEffect, useMemo } from "react"
+import { memo, Suspense, useEffect } from "react"
 import SystemsTable from "@/components/systems-table/systems-table"
 import { GpuClusterOverview } from "@/components/gpu-cluster-overview"
 import { GpuStatusTable, useGpuRows } from "@/components/gpu-status-table"
@@ -14,15 +14,15 @@ export default memo(() => {
 	}, [t])
 
 	return (
-			<>
-				<div className="flex flex-col gap-4">
-					<GpuClusterOverview rows={gpuRows} />
-					<GpuStatusTable rows={gpuRows} />
-					<Suspense>
-						<SystemsTable />
-					</Suspense>
-				</div>
-				<FooterRepoLink />
-			</>
-		)
+		<>
+			<div className="flex flex-col gap-4">
+				<GpuClusterOverview rows={gpuRows} />
+				<GpuStatusTable rows={gpuRows} />
+				<Suspense>
+					<SystemsTable />
+				</Suspense>
+			</div>
+			<FooterRepoLink />
+		</>
+	)
 })
