@@ -1,7 +1,7 @@
 // gpu-monitoring fork addition (not upstream): a per-GPU status table for
 // the home page, mirroring this project's own Grafana "GPU Status by
 // Server" panel (one row per server+GPU, with Util/VRAM/Temp/Power).
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useStore } from "@nanostores/react"
 import { getPagePath } from "@nanostores/router"
 import { t } from "@lingui/core/macro"
@@ -98,7 +98,7 @@ interface GpuEntry {
 	pl?: number
 }
 
-interface GpuRow {
+export interface GpuRow {
 	systemId: string
 	index: string
 	name: string
@@ -148,8 +148,11 @@ function groupRows(rows: GpuRow[], systems: Record<string, { name: string; statu
 	const now = Date.now()
 	for (const row of rows) {
 		const systemUp = systems[row.systemId]?.status === SystemStatus.Up
-		row.availability = classifyGpu(sampleOf(row), { systemUp, busyAt: row.busyAt, now })
-		bySystem.set(row.systemId, [...(bySystem.get(row.systemId) ?? []), row])
+		// Keep previous props immutable so memoization can observe availability changes.
+		const classifiedRow: GpuRow = { ...row, availability: classifyGpu(sampleOf(row), { systemUp, busyAt: row.busyAt, now }) }
+		const group = bySystem.get(row.systemId)
+		if (group) group.push(classifiedRow)
+		else bySystem.set(row.systemId, [classifiedRow])
 	}
 	const groups: GpuGroup[] = []
 	for (const [systemId, gpus] of bySystem) {
@@ -302,7 +305,15 @@ function Panel({
 // Clicking the card opens the processes panel.
 const CARD_COLUMNS = "xl:grid-cols-[0.75rem_3.5rem_3rem_16.25rem_minmax(12rem,1fr)_minmax(12rem,1fr)_1rem]"
 
-function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOpen: () => void }) {
+interface GpuCardProps {
+	row: GpuRow
+	offline: boolean
+	onOpen: (key: string) => void
+}
+
+// Compare only what the card renders; process details always read the latest snapshot.
+const GpuCard = memo(
+	function GpuCard({ row, offline, onOpen }: GpuCardProps) {
 	const free = row.availability === "free"
 	const memPct = row.memTotal ? (row.memUsed / row.memTotal) * 100 : 0
 	return (
@@ -310,11 +321,11 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 			role="button"
 			tabIndex={0}
 			aria-label={`GPU ${row.index} ${row.name} · ${availabilityLabel(row.availability)}`}
-			onClick={onOpen}
+			onClick={() => onOpen(rowKey(row))}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" || e.key === " ") {
 					e.preventDefault()
-					onOpen()
+					onOpen(rowKey(row))
 				}
 			}}
 			className={cn(
@@ -405,7 +416,17 @@ function GpuCard({ row, offline, onOpen }: { row: GpuRow; offline: boolean; onOp
 			</div>
 		</div>
 	)
-}
+	},
+	(prev, next) => {
+		const a = prev.row, b = next.row
+		return prev.offline === next.offline && prev.onOpen === next.onOpen &&
+			a.systemId === b.systemId && a.index === b.index && a.name === b.name &&
+			a.availability === b.availability && a.util === b.util &&
+			a.memUsed === b.memUsed && a.memTotal === b.memTotal &&
+			a.temp === b.temp && a.fan === b.fan && a.power === b.power &&
+			a.powerLimit === b.powerLimit && a.procs.length === b.procs.length
+	}
+)
 
 async function fetchGpuRows(): Promise<GpuRow[]> {
 	// Newest first. At a 5s poll interval this also covers each system's last
@@ -632,9 +653,48 @@ function GpuProcessesSheet({
 	)
 }
 
-export function GpuStatusTable() {
-	const systems = useStore($allSystemsById)
+// One polling loop and one parsed snapshot for both GPU panels on the home page.
+export function useGpuRows(): GpuRow[] {
 	const [rows, setRows] = useState<GpuRow[]>([])
+	const busyAtRef = useRef(new Map<string, number>())
+
+	useEffect(() => {
+		let cancelled = false
+		let inFlight = false
+		async function load() {
+			if (cancelled || document.hidden || inFlight) return
+			inFlight = true
+			try {
+				const nextRows = await fetchGpuRows()
+				if (cancelled) return
+				for (const row of nextRows) {
+					const key = rowKey(row)
+					row.busyAt = Math.max(row.busyAt, busyAtRef.current.get(key) ?? 0)
+					busyAtRef.current.set(key, row.busyAt)
+				}
+				setRows(nextRows)
+			} catch (error) {
+				if (!cancelled) console.error("Failed to load GPU status:", error)
+			} finally {
+				inFlight = false
+			}
+		}
+		// Background tabs do no GPU work; returning to the tab fetches immediately.
+		const onVisibilityChange = () => { if (!document.hidden) void load() }
+		void load()
+		const interval = window.setInterval(() => void load(), globalThis.BESZEL?.UPDATE_INTERVAL_MS || 30_000)
+		document.addEventListener("visibilitychange", onVisibilityChange)
+		return () => {
+			cancelled = true
+			window.clearInterval(interval)
+			document.removeEventListener("visibilitychange", onVisibilityChange)
+		}
+	}, [])
+	return rows
+}
+
+export function GpuStatusTable({ rows }: { rows: GpuRow[] }) {
+	const systems = useStore($allSystemsById)
 	// systemId -> collapsed. Missing = expanded, so every server (including
 	// ones added later) shows its GPUs until the user folds it away.
 	const [collapsed, setCollapsed] = useBrowserStorage<Record<string, boolean>>("gpu-status-collapsed", {})
@@ -642,10 +702,6 @@ export function GpuStatusTable() {
 	const [sheetOpen, setSheetOpen] = useState(false)
 	const activeContainer = useRef<ContainerRecord | null>(null)
 	const [containerSheetOpen, setContainerSheetOpen] = useState(false)
-	// when each GPU last ran, kept across refreshes so a GPU doesn't turn
-	// "free" just because its busy samples scrolled out of the fetched page
-	const busyAtRef = useRef(new Map<string, number>())
-
 	// Resolves a container name (all the GPU process row has) to its actual
 	// container record (id, image, status, ...), which the shared
 	// ContainerSheet -- and the /api/beszel/containers/logs|info endpoints it
@@ -673,37 +729,17 @@ export function GpuStatusTable() {
 		}
 	}
 
-	useEffect(() => {
-		let cancelled = false
-		function load() {
-			fetchGpuRows().then((r) => {
-				if (cancelled) return
-				for (const row of r) {
-					const key = rowKey(row)
-					row.busyAt = Math.max(row.busyAt, busyAtRef.current.get(key) ?? 0)
-					busyAtRef.current.set(key, row.busyAt)
-				}
-				setRows(r)
-			})
-		}
-		load()
-		// matches the hub's actual agent-poll interval (UPDATE_INTERVAL_MS,
-		// possibly overridden from its 30s default) instead of a hardcoded
-		// value that would silently drift out of sync with it
-		const interval = setInterval(load, globalThis.BESZEL?.UPDATE_INTERVAL_MS || 30_000)
-		return () => {
-			cancelled = true
-			clearInterval(interval)
-		}
-	}, [])
-
 	const groups = useMemo(() => groupRows(rows, systems), [rows, systems])
+	const handleOpenGpu = useCallback((key: string) => {
+		setActiveRowKey(key)
+		setSheetOpen(true)
+	}, [])
 
 	if (rows.length === 0) {
 		return null
 	}
 
-	const freeCount = rows.filter((r) => r.availability === "free").length
+	const freeCount = groups.reduce((count, group) => count + group.gpus.filter((gpu) => gpu.availability === "free").length, 0)
 	const allExpanded = groups.every((g) => !collapsed[g.systemId])
 	const setAll = (expand: boolean) => setCollapsed(Object.fromEntries(groups.map((g) => [g.systemId, !expand])))
 
@@ -820,10 +856,7 @@ export function GpuStatusTable() {
 												key={key}
 												row={row}
 												offline={offline}
-												onOpen={() => {
-													setActiveRowKey(key)
-													setSheetOpen(true)
-												}}
+												onOpen={handleOpenGpu}
 											/>
 										)
 									})}
