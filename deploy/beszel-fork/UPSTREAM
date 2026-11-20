@@ -2,8 +2,8 @@
 # upstream release; keep it updated.
 #
 # repo:     https://github.com/henrygd/beszel
-# version:  v0.21.1
-# commit:   e2ed147a5aa6472e6462521632ccc7101668132c
+# version:  v0.21.2
+# commit:   c97759f0ca4badc824ab0ff43f1571cc3c8f3a72
 #
 # How to merge a newer release (3-way, with upstream history):
 #   1. git clone https://github.com/henrygd/beszel && cd beszel
@@ -15,3 +15,9 @@
 # Fork-only CBOR keys start at 100 (upstream took 40 for WiFi in v0.21).
 # Before merging, compare the cbor keys of internal/entities/* structs on both
 # sides for collisions.
+#
+# v0.21.2 notes: upstream moved PocketBase to the ganigeorgiev.com/pocketbase
+# import path. Fork-only Go files (migrations 1-5, records/gpu_power*, hub
+# gpu_power_rules_test) need the new path; grep for "github.com/pocketbase"
+# after merging. Upstream's container upsert only updates rows owned by the
+# same system (#2835); the fork's extra columns are added inside that query.

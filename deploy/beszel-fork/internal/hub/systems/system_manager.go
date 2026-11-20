@@ -19,10 +19,10 @@ import (
 	"github.com/henrygd/beszel"
 	"github.com/henrygd/beszel/internal/hub/utils"
 
+	"ganigeorgiev.com/pocketbase/dbx"
+	"ganigeorgiev.com/pocketbase/pocketbase/core"
+	"ganigeorgiev.com/pocketbase/pocketbase/tools/store"
 	"github.com/blang/semver"
-	"github.com/pocketbase/dbx"
-	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/tools/store"
 	"golang.org/x/crypto/ssh"
 )
 

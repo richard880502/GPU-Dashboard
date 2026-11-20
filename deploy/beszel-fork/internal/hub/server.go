@@ -19,7 +19,10 @@ type PublicAppInfo struct {
 	// the same cadence as the hub's own agent-poll interval (UPDATE_INTERVAL_MS)
 	// instead of a hardcoded value that silently drifts out of sync with it.
 	UPDATE_INTERVAL_MS  int
-	OAUTH_DISABLE_POPUP bool `json:"OAUTH_DISABLE_POPUP,omitzero"`
+	OAUTH_DISABLE_POPUP bool `json:",omitzero"`
+	// AUTO_LOGIN is true when AUTO_LOGIN or TRUSTED_AUTH_HEADER is configured, so the
+	// login page knows to try an anonymous auth refresh before showing the form.
+	AUTO_LOGIN bool `json:",omitzero"`
 }
 
 // modifyIndexHTML injects the public app information into the index.html content
@@ -70,5 +73,8 @@ func getPublicAppInfo(hub *Hub) PublicAppInfo {
 	if val, _ := utils.GetEnv("OAUTH_DISABLE_POPUP"); val == "true" {
 		info.OAUTH_DISABLE_POPUP = true
 	}
+	autoLogin, _ := utils.GetEnv("AUTO_LOGIN")
+	trustedHeader, _ := utils.GetEnv("TRUSTED_AUTH_HEADER")
+	info.AUTO_LOGIN = autoLogin != "" || trustedHeader != ""
 	return info
 }
