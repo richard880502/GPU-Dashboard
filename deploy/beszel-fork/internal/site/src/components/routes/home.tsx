@@ -1,28 +1,30 @@
 import { useLingui } from "@lingui/react/macro"
-import { memo, Suspense, useEffect } from "react"
+import { memo, Suspense, useEffect, useMemo } from "react"
 import SystemsTable from "@/components/systems-table/systems-table"
-import { GpuClusterOverview } from "@/components/gpu-cluster-overview"
-import { GpuStatusTable, useGpuRows } from "@/components/gpu-status-table"
+import { GpuSection } from "@/components/gpu-section"
 import { FooterRepoLink } from "@/components/footer-repo-link"
 
 export default memo(() => {
 	const { t } = useLingui()
-	const gpuRows = useGpuRows()
 
 	useEffect(() => {
 		document.title = `${t`All Systems`} / Beszel`
 	}, [t])
 
-	return (
-		<>
-			<div className="flex flex-col gap-4">
-				<GpuClusterOverview rows={gpuRows} />
-				<GpuStatusTable rows={gpuRows} />
-				<Suspense>
-					<SystemsTable />
-				</Suspense>
-			</div>
-			<FooterRepoLink />
-		</>
+	// GPU polling state lives inside GpuSection, so its refreshes never
+	// re-render this tree (and with it the systems table).
+	return useMemo(
+		() => (
+			<>
+				<div className="flex flex-col gap-4">
+					<GpuSection />
+					<Suspense>
+						<SystemsTable />
+					</Suspense>
+				</div>
+				<FooterRepoLink />
+			</>
+		),
+		[]
 	)
 })

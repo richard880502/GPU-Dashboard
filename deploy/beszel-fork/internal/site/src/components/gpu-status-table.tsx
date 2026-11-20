@@ -11,6 +11,7 @@ import { resolvePortMap, type RayInfo } from "@/lib/container-ports"
 import { $allSystemsById } from "@/lib/stores"
 import { SystemStatus } from "@/lib/enums"
 import { displayGpuModel } from "@/lib/gpu-model"
+import type { GpuLayout } from "@/lib/gpu-layout"
 import type { ContainerRecord, GPUProcess } from "@/types"
 import { cn, decimalString, getServerDotColor, useBrowserStorage } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -31,13 +32,7 @@ import { $router, Link } from "./router"
 import { ContainerSheet } from "./containers-table/containers-table"
 import { toast } from "./ui/use-toast"
 import { Button } from "./ui/button"
-import {
-	BUSY_UTIL_PCT,
-	classifyGpu,
-	type GpuAvailability,
-	type GpuSample,
-	parsePbDate,
-} from "@/lib/gpu-availability"
+import { BUSY_UTIL_PCT, classifyGpu, type GpuAvailability, type GpuSample, parsePbDate } from "@/lib/gpu-availability"
 
 // Renders a process's container attribution readably instead of the raw
 // "host:<process>" / "k8s:<namespace>/<pod>/<container>" wire format. Real
@@ -143,13 +138,20 @@ interface GpuGroup {
 	totalPower?: number
 }
 
-function groupRows(rows: GpuRow[], systems: Record<string, { name: string; status?: string }>): GpuGroup[] {
+function groupRows(
+	rows: GpuRow[],
+	systems: Record<string, { name: string; status?: string }>,
+	keepOrder = false
+): GpuGroup[] {
 	const bySystem = new Map<string, GpuRow[]>()
 	const now = Date.now()
 	for (const row of rows) {
 		const systemUp = systems[row.systemId]?.status === SystemStatus.Up
 		// Keep previous props immutable so memoization can observe availability changes.
-		const classifiedRow: GpuRow = { ...row, availability: classifyGpu(sampleOf(row), { systemUp, busyAt: row.busyAt, now }) }
+		const classifiedRow: GpuRow = {
+			...row,
+			availability: classifyGpu(sampleOf(row), { systemUp, busyAt: row.busyAt, now }),
+		}
 		const group = bySystem.get(row.systemId)
 		if (group) group.push(classifiedRow)
 		else bySystem.set(row.systemId, [classifiedRow])
@@ -170,6 +172,8 @@ function groupRows(rows: GpuRow[], systems: Record<string, { name: string; statu
 			totalPower: powers.length ? powers.reduce((a, b) => a + b, 0) : undefined,
 		})
 	}
+	// Placeholders already come in the order the real table will use.
+	if (keepOrder) return groups
 	// Stable order (by name). The rows come back newest-record-first, which
 	// reshuffled the servers on every refresh.
 	return groups.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
@@ -227,7 +231,14 @@ function availabilityLabel(availability: GpuAvailability) {
 // name. The legend in the header explains the colors.
 function StatusDot({ availability }: { availability: GpuAvailability }) {
 	const label = availabilityLabel(availability)
-	return <span role="img" aria-label={label} title={label} className={cn("block size-3 rounded-full", AVAILABILITY[availability].dot)} />
+	return (
+		<span
+			role="img"
+			aria-label={label}
+			title={label}
+			className={cn("block size-3 rounded-full", AVAILABILITY[availability].dot)}
+		/>
+	)
 }
 
 // A thin progress bar: role=progressbar for assistive tech, the width eases
@@ -314,117 +325,144 @@ interface GpuCardProps {
 // Compare only what the card renders; process details always read the latest snapshot.
 const GpuCard = memo(
 	function GpuCard({ row, offline, onOpen }: GpuCardProps) {
-	const free = row.availability === "free"
-	const memPct = row.memTotal ? (row.memUsed / row.memTotal) * 100 : 0
-	return (
-		<div
-			role="button"
-			tabIndex={0}
-			aria-label={`GPU ${row.index} ${row.name} · ${availabilityLabel(row.availability)}`}
-			onClick={() => onOpen(rowKey(row))}
-			onKeyDown={(e) => {
-				if (e.key === "Enter" || e.key === " ") {
-					e.preventDefault()
-					onOpen(rowKey(row))
-				}
-			}}
-			className={cn(
-				"cursor-pointer rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-3 py-1 shadow-sm transition-colors hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-				"dark:border-white/[0.07] dark:from-[#222225] dark:to-[#1b1b1d] dark:shadow-none dark:hover:border-white/20",
-				offline && "opacity-60"
-			)}
-		>
-			<div className={cn("flex flex-col gap-1.5 xl:grid xl:items-center xl:gap-x-5 2xl:gap-x-6", CARD_COLUMNS)}>
-				<div className="flex flex-wrap items-center gap-x-3 gap-y-1 xl:contents">
-					<div className="flex shrink-0 items-center xl:order-1">
-						<StatusDot availability={row.availability} />
-					</div>
-					<div className="w-20 shrink-0 text-center xl:order-2 xl:w-auto">
-						<div className="text-[10px] leading-3 text-slate-500 dark:text-neutral-400">{t`Free VRAM`}</div>
-						<div
-							className={cn(
-								"text-sm font-semibold leading-4 tabular-nums text-slate-900 dark:text-neutral-50",
-								free && "text-emerald-600 dark:text-emerald-400"
-							)}
-						>
-							{row.memTotal && row.availability !== "offline" ? `${toGB(freeMem(row))} GB` : "-"}
+		const free = row.availability === "free"
+		const memPct = row.memTotal ? (row.memUsed / row.memTotal) * 100 : 0
+		return (
+			<div
+				role="button"
+				tabIndex={0}
+				aria-label={`GPU ${row.index} ${row.name} · ${availabilityLabel(row.availability)}`}
+				onClick={() => onOpen(rowKey(row))}
+				onKeyDown={(e) => {
+					if (e.key === "Enter" || e.key === " ") {
+						e.preventDefault()
+						onOpen(rowKey(row))
+					}
+				}}
+				className={cn(
+					"cursor-pointer rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-3 py-1 shadow-sm transition-colors hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+					"dark:border-white/[0.07] dark:from-[#222225] dark:to-[#1b1b1d] dark:shadow-none dark:hover:border-white/20",
+					offline && "opacity-60"
+				)}
+			>
+				<div className={cn("flex flex-col gap-1.5 xl:grid xl:items-center xl:gap-x-5 2xl:gap-x-6", CARD_COLUMNS)}>
+					<div className="flex flex-wrap items-center gap-x-3 gap-y-1 xl:contents">
+						<div className="flex shrink-0 items-center xl:order-1">
+							<StatusDot availability={row.availability} />
 						</div>
-					</div>
-					<div className="shrink-0 whitespace-nowrap text-center text-base font-semibold tabular-nums text-slate-900 dark:text-neutral-50 xl:order-3">
-						GPU {row.index}
-					</div>
-					<div className="min-w-[12rem] flex-1 xl:order-4 xl:min-w-0">
-						<div className="flex min-w-0 flex-col items-center gap-0.5 leading-tight">
-							<span className="block max-w-full min-w-0 truncate text-center text-sm leading-4 text-slate-500 dark:text-neutral-400" title={row.name}>
-								{row.name}
-							</span>
-							<span className="flex items-center gap-x-3 whitespace-nowrap text-xs leading-4 tabular-nums text-slate-600 dark:text-neutral-300">
-								{row.temp !== undefined ? (
-									<span className={cn("inline-flex w-[2.95rem] items-center gap-1", tempColor(row.temp))} title={t`Temperature`}>
-										<ThermometerIcon className="size-3" aria-hidden="true" />
-										{row.temp.toFixed(0)}°C
-									</span>
-								) : (
-									<span className="w-[2.95rem]" aria-hidden="true" />
+						<div className="w-20 shrink-0 text-center xl:order-2 xl:w-auto">
+							<div className="text-[10px] leading-3 text-slate-500 dark:text-neutral-400">{t`Free VRAM`}</div>
+							<div
+								className={cn(
+									"text-sm font-semibold leading-4 tabular-nums text-slate-900 dark:text-neutral-50",
+									free && "text-emerald-600 dark:text-emerald-400"
 								)}
-								{row.fan !== undefined ? (
-									<span className="inline-flex w-[2.6rem] items-center gap-1" title={t`Fan speed`}>
-										<FanIcon className="size-3" aria-hidden="true" />
-										{row.fan.toFixed(0)}%
-									</span>
-								) : (
-									<span className="w-[2.6rem]" aria-hidden="true" />
-								)}
-								{row.power !== undefined ? (
-									<span
-										className={cn("inline-flex w-[5.85rem] items-center gap-1", powerColor(row.power, row.powerLimit))}
-										title={row.powerLimit ? t`Power / limit` : "Power"}
-									>
-										<ZapIcon className="size-3" aria-hidden="true" />
-										{row.power.toFixed(0)}W{row.powerLimit ? ` / ${row.powerLimit.toFixed(0)}W` : ""}
-									</span>
-								) : (
-									<span className="w-[5.85rem]" aria-hidden="true" />
-								)}
-								<span className="w-[2.6rem]">
-									{row.procs.length} {t`Processes`}
+							>
+								{row.memTotal && row.availability !== "offline" ? `${toGB(freeMem(row))} GB` : "-"}
+							</div>
+						</div>
+						<div className="shrink-0 whitespace-nowrap text-center text-base font-semibold tabular-nums text-slate-900 dark:text-neutral-50 xl:order-3">
+							GPU {row.index}
+						</div>
+						<div className="min-w-[12rem] flex-1 xl:order-4 xl:min-w-0">
+							<div className="flex min-w-0 flex-col items-center gap-0.5 leading-tight">
+								<span
+									className="block max-w-full min-w-0 truncate text-center text-sm leading-4 text-slate-500 dark:text-neutral-400"
+									title={row.name}
+								>
+									{row.name}
 								</span>
-							</span>
+								<span className="flex items-center gap-x-3 whitespace-nowrap text-xs leading-4 tabular-nums text-slate-600 dark:text-neutral-300">
+									{row.temp !== undefined ? (
+										<span
+											className={cn("inline-flex w-[2.95rem] items-center gap-1", tempColor(row.temp))}
+											title={t`Temperature`}
+										>
+											<ThermometerIcon className="size-3" aria-hidden="true" />
+											{row.temp.toFixed(0)}°C
+										</span>
+									) : (
+										<span className="w-[2.95rem]" aria-hidden="true" />
+									)}
+									{row.fan !== undefined ? (
+										<span className="inline-flex w-[2.6rem] items-center gap-1" title={t`Fan speed`}>
+											<FanIcon className="size-3" aria-hidden="true" />
+											{row.fan.toFixed(0)}%
+										</span>
+									) : (
+										<span className="w-[2.6rem]" aria-hidden="true" />
+									)}
+									{row.power !== undefined ? (
+										<span
+											className={cn(
+												"inline-flex w-[5.85rem] items-center gap-1",
+												powerColor(row.power, row.powerLimit)
+											)}
+											title={row.powerLimit ? t`Power / limit` : "Power"}
+										>
+											<ZapIcon className="size-3" aria-hidden="true" />
+											{row.power.toFixed(0)}W{row.powerLimit ? ` / ${row.powerLimit.toFixed(0)}W` : ""}
+										</span>
+									) : (
+										<span className="w-[5.85rem]" aria-hidden="true" />
+									)}
+									<span className="w-[2.6rem]">
+										{row.procs.length} {t`Processes`}
+									</span>
+								</span>
+							</div>
 						</div>
+						<ChevronRightIcon
+							className="ms-auto size-4 shrink-0 text-slate-400 dark:text-neutral-500 xl:order-7 xl:ms-0"
+							aria-hidden="true"
+						/>
 					</div>
-					<ChevronRightIcon className="ms-auto size-4 shrink-0 text-slate-400 dark:text-neutral-500 xl:order-7 xl:ms-0" aria-hidden="true" />
-				</div>
-				<div className="grid grid-cols-2 gap-2 xl:contents">
-					<Panel
-						Icon={MemoryStickIcon}
-						label={t`Memory`}
-						value={`${toGB(row.memUsed)}/${toGB(row.memTotal)} GB`}
-						valueTitle={`${decimalString(row.memUsed, 0)}MiB / ${decimalString(row.memTotal, 0)}MiB`}
-						className="xl:order-5"
-					>
-						<Bar value={memPct} label={t`Memory`} color={barColor(memPct, 70, 90)} />
-					</Panel>
-					<Panel
-						Icon={GaugeIcon}
-						label={t({ message: "Utilization", context: "GPU card" })}
-						value={`${decimalString(row.util, row.util >= 10 ? 0 : 1)}%`}
-						className="xl:order-6"
-					>
-						<Bar value={row.util} label={t({ message: "Utilization", context: "GPU card" })} color={barColor(row.util, 50, 85)} />
-					</Panel>
+					<div className="grid grid-cols-2 gap-2 xl:contents">
+						<Panel
+							Icon={MemoryStickIcon}
+							label={t`Memory`}
+							value={`${toGB(row.memUsed)}/${toGB(row.memTotal)} GB`}
+							valueTitle={`${decimalString(row.memUsed, 0)}MiB / ${decimalString(row.memTotal, 0)}MiB`}
+							className="xl:order-5"
+						>
+							<Bar value={memPct} label={t`Memory`} color={barColor(memPct, 70, 90)} />
+						</Panel>
+						<Panel
+							Icon={GaugeIcon}
+							label={t({ message: "Utilization", context: "GPU card" })}
+							value={`${decimalString(row.util, row.util >= 10 ? 0 : 1)}%`}
+							className="xl:order-6"
+						>
+							<Bar
+								value={row.util}
+								label={t({ message: "Utilization", context: "GPU card" })}
+								color={barColor(row.util, 50, 85)}
+							/>
+						</Panel>
+					</div>
 				</div>
 			</div>
-		</div>
-	)
+		)
 	},
 	(prev, next) => {
-		const a = prev.row, b = next.row
-		return prev.offline === next.offline && prev.onOpen === next.onOpen &&
-			a.systemId === b.systemId && a.index === b.index && a.name === b.name &&
-			a.availability === b.availability && a.util === b.util &&
-			a.memUsed === b.memUsed && a.memTotal === b.memTotal &&
-			a.temp === b.temp && a.fan === b.fan && a.power === b.power &&
-			a.powerLimit === b.powerLimit && a.procs.length === b.procs.length
+		const a = prev.row,
+			b = next.row
+		return (
+			prev.offline === next.offline &&
+			prev.onOpen === next.onOpen &&
+			a.systemId === b.systemId &&
+			a.index === b.index &&
+			a.name === b.name &&
+			a.availability === b.availability &&
+			a.util === b.util &&
+			a.memUsed === b.memUsed &&
+			a.memTotal === b.memTotal &&
+			a.temp === b.temp &&
+			a.fan === b.fan &&
+			a.power === b.power &&
+			a.powerLimit === b.powerLimit &&
+			a.procs.length === b.procs.length
+		)
 	}
 )
 
@@ -540,7 +578,11 @@ function ProcessPorts({ value, legacyPorts }: { value?: string; legacyPorts?: st
 	return (
 		<span
 			className="tabular-nums"
-			title={listening ? `${t({ message: "Listening on the host network", context: "Container ports" })}\n${view.full}` : view.full}
+			title={
+				listening
+					? `${t({ message: "Listening on the host network", context: "Container ports" })}\n${view.full}`
+					: view.full
+			}
 		>
 			{view.ray ? (
 				<RayBadge ray={view.ray} />
@@ -653,9 +695,30 @@ function GpuProcessesSheet({
 	)
 }
 
+// Stand-in rows shaped like the last snapshot: the panels render at their real
+// size (same servers, same number of cards) while the first fetch is running.
+export function placeholderRows(layout: GpuLayout): GpuRow[] {
+	return layout.flatMap(({ s, i }) =>
+		i.map((index) => ({
+			systemId: s,
+			index,
+			name: "",
+			util: 0,
+			vramPct: 0,
+			memUsed: 0,
+			memTotal: 0,
+			procs: [],
+			at: 0,
+			busyAt: 0,
+			availability: "offline" as const,
+		}))
+	)
+}
+
 // One polling loop and one parsed snapshot for both GPU panels on the home page.
-export function useGpuRows(): GpuRow[] {
-	const [rows, setRows] = useState<GpuRow[]>([])
+// null until the first snapshot arrives, so callers can show placeholders.
+export function useGpuRows(): GpuRow[] | null {
+	const [rows, setRows] = useState<GpuRow[] | null>(null)
 	const busyAtRef = useRef(new Map<string, number>())
 
 	useEffect(() => {
@@ -680,7 +743,9 @@ export function useGpuRows(): GpuRow[] {
 			}
 		}
 		// Background tabs do no GPU work; returning to the tab fetches immediately.
-		const onVisibilityChange = () => { if (!document.hidden) void load() }
+		const onVisibilityChange = () => {
+			if (!document.hidden) void load()
+		}
 		void load()
 		const interval = window.setInterval(() => void load(), globalThis.BESZEL?.UPDATE_INTERVAL_MS || 30_000)
 		document.addEventListener("visibilitychange", onVisibilityChange)
@@ -693,7 +758,7 @@ export function useGpuRows(): GpuRow[] {
 	return rows
 }
 
-export function GpuStatusTable({ rows }: { rows: GpuRow[] }) {
+export function GpuStatusTable({ rows, placeholder = false }: { rows: GpuRow[]; placeholder?: boolean }) {
 	const systems = useStore($allSystemsById)
 	// systemId -> collapsed. Missing = expanded, so every server (including
 	// ones added later) shows its GPUs until the user folds it away.
@@ -714,9 +779,12 @@ export function GpuStatusTable({ rows }: { rows: GpuRow[] }) {
 		try {
 			const record = await pb
 				.collection<ContainerRecord>("containers")
-				.getFirstListItem(pb.filter("system = {:system} && name = {:name}", { system: systemId, name: containerName }), {
-					sort: "-updated",
-				})
+				.getFirstListItem(
+					pb.filter("system = {:system} && name = {:name}", { system: systemId, name: containerName }),
+					{
+						sort: "-updated",
+					}
+				)
 			activeContainer.current = record
 			setContainerSheetOpen(true)
 		} catch (error) {
@@ -729,7 +797,7 @@ export function GpuStatusTable({ rows }: { rows: GpuRow[] }) {
 		}
 	}
 
-	const groups = useMemo(() => groupRows(rows, systems), [rows, systems])
+	const groups = useMemo(() => groupRows(rows, systems, placeholder), [rows, systems, placeholder])
 	const handleOpenGpu = useCallback((key: string) => {
 		setActiveRowKey(key)
 		setSheetOpen(true)
@@ -739,12 +807,15 @@ export function GpuStatusTable({ rows }: { rows: GpuRow[] }) {
 		return null
 	}
 
-	const freeCount = groups.reduce((count, group) => count + group.gpus.filter((gpu) => gpu.availability === "free").length, 0)
+	const freeCount = groups.reduce(
+		(count, group) => count + group.gpus.filter((gpu) => gpu.availability === "free").length,
+		0
+	)
 	const allExpanded = groups.every((g) => !collapsed[g.systemId])
 	const setAll = (expand: boolean) => setCollapsed(Object.fromEntries(groups.map((g) => [g.systemId, !expand])))
 
 	return (
-		<Card>
+		<Card aria-busy={placeholder} className={cn(placeholder && "pointer-events-none select-none")}>
 			<CardHeader className="pb-2 px-2 sm:px-6 max-sm:pt-5 max-sm:pb-1">
 				<div className="px-2 sm:px-1 flex items-center justify-between gap-2">
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -758,9 +829,12 @@ export function GpuStatusTable({ rows }: { rows: GpuRow[] }) {
 								freeCount === 0 && "text-muted-foreground"
 							)}
 						>
-							<span className={cn("size-2 rounded-full", freeCount > 0 ? "bg-emerald-500" : "bg-muted-foreground/50")} aria-hidden="true" />
+							<span
+								className={cn("size-2 rounded-full", freeCount > 0 ? "bg-emerald-500" : "bg-muted-foreground/50")}
+								aria-hidden="true"
+							/>
 							<Trans>Available GPUs</Trans>
-							<span className="font-semibold">{freeCount}</span>/ {rows.length}
+							<span className="min-w-[1ch] text-end font-semibold">{placeholder ? "-" : freeCount}</span>/ {rows.length}
 						</span>
 						<span className="hidden md:inline-flex items-center gap-3 text-xs text-muted-foreground">
 							{AVAILABILITY_ORDER.map((a) => (
@@ -777,7 +851,10 @@ export function GpuStatusTable({ rows }: { rows: GpuRow[] }) {
 					</Button>
 				</div>
 			</CardHeader>
-			<CardContent className="space-y-2 max-sm:p-2">
+			<CardContent
+				className={cn("space-y-2 max-sm:p-2", placeholder && "animate-pulse")}
+				aria-hidden={placeholder || undefined}
+			>
 				{groups.map((group) => {
 					const isOpen = !collapsed[group.systemId]
 					const status = systems[group.systemId]?.status
@@ -821,7 +898,7 @@ export function GpuStatusTable({ rows }: { rows: GpuRow[] }) {
 										className="hover:underline"
 										onClick={(e) => e.stopPropagation()}
 									>
-										{group.name}
+										{placeholder && !systems[group.systemId] ? "\u00a0" : group.name}
 									</Link>
 									{offline && <span className="text-xs font-normal text-muted-foreground">({status})</span>}
 								</span>
@@ -834,31 +911,28 @@ export function GpuStatusTable({ rows }: { rows: GpuRow[] }) {
 									{t`${free} / ${total} free`}
 								</span>
 								<span className="ms-auto flex flex-nowrap items-center gap-x-3 whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-									<span title="Average utilization" className="max-md:hidden">
+									<span title="Average utilization" className="min-w-[5.25rem] text-end max-md:hidden">
 										{t({ message: "Utilization", context: "GPU card" })} {decimalString(group.avgUtil, 0)}%
 									</span>
-									<span title={t`Most free VRAM on a single GPU`}>
+									<span title={t`Most free VRAM on a single GPU`} className="min-w-[8.25rem] text-end">
 										{(() => {
 											const online = group.gpus.filter((g) => g.availability !== "offline" && g.memTotal)
 											return online.length ? `${t`Free VRAM`} ${toGB(Math.max(...online.map(freeMem)))} GB` : ""
 										})()}
 									</span>
-									{group.maxTemp !== undefined && <span title="Hottest GPU">{group.maxTemp.toFixed(0)}°C</span>}
-									{group.totalPower !== undefined && <span title="Total power">{group.totalPower.toFixed(0)}W</span>}
+									<span title="Hottest GPU" className="min-w-[2.25rem] text-end">
+										{group.maxTemp !== undefined ? `${group.maxTemp.toFixed(0)}°C` : ""}
+									</span>
+									<span title="Total power" className="min-w-[2.75rem] text-end">
+										{group.totalPower !== undefined ? `${group.totalPower.toFixed(0)}W` : ""}
+									</span>
 								</span>
 							</div>
 							{isOpen && (
 								<div className="flex flex-col gap-1.5">
 									{group.gpus.map((row) => {
 										const key = `${row.systemId}-${row.index}`
-										return (
-											<GpuCard
-												key={key}
-												row={row}
-												offline={offline}
-												onOpen={handleOpenGpu}
-											/>
-										)
+										return <GpuCard key={key} row={row} offline={offline} onOpen={handleOpenGpu} />
 									})}
 								</div>
 							)}
@@ -873,7 +947,11 @@ export function GpuStatusTable({ rows }: { rows: GpuRow[] }) {
 				setOpen={setSheetOpen}
 				onOpenContainer={openContainer}
 			/>
-			<ContainerSheet sheetOpen={containerSheetOpen} setSheetOpen={setContainerSheetOpen} activeContainer={activeContainer} />
+			<ContainerSheet
+				sheetOpen={containerSheetOpen}
+				setSheetOpen={setContainerSheetOpen}
+				activeContainer={activeContainer}
+			/>
 		</Card>
 	)
 }

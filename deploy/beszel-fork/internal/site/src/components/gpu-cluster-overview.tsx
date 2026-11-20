@@ -4,12 +4,13 @@ import { useMemo } from "react"
 import { useStore } from "@nanostores/react"
 import { SystemStatus } from "@/lib/enums"
 import { classifyGpu } from "@/lib/gpu-availability"
+import { cn } from "@/lib/utils"
 import { $allSystemsById } from "@/lib/stores"
 import type { GpuRow } from "./gpu-status-table"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { GpuIcon } from "./ui/icons"
 
-export function GpuClusterOverview({ rows }: { rows: GpuRow[] }) {
+export function GpuClusterOverview({ rows, placeholder = false }: { rows: GpuRow[]; placeholder?: boolean }) {
 	const systems = useStore($allSystemsById)
 	const stats = useMemo(() => {
 		const servers = new Set<string>()
@@ -39,15 +40,16 @@ export function GpuClusterOverview({ rows }: { rows: GpuRow[] }) {
 
 	if (stats.totalGpus === 0) return null
 
+	// placeholders keep the card at its real size until the first snapshot arrives
 	const tiles: { label: string; value: string }[] = [
-		{ label: "Servers", value: `${stats.servers}` },
-		{ label: "GPUs", value: `${stats.totalGpus}` },
-		{ label: "GPU Occupancy", value: `${stats.occupiedGpus} / ${stats.totalGpus}` },
-		{ label: "Avg GPU Utilization", value: `${stats.avgUtil.toFixed(1)}%` },
-		{ label: "Avg VRAM Used", value: `${stats.avgVram.toFixed(1)}%` },
+		{ label: "Servers", value: placeholder ? "-" : `${stats.servers}` },
+		{ label: "GPUs", value: placeholder ? "-" : `${stats.totalGpus}` },
+		{ label: "GPU Occupancy", value: placeholder ? "-" : `${stats.occupiedGpus} / ${stats.totalGpus}` },
+		{ label: "Avg GPU Utilization", value: placeholder ? "-" : `${stats.avgUtil.toFixed(1)}%` },
+		{ label: "Avg VRAM Used", value: placeholder ? "-" : `${stats.avgVram.toFixed(1)}%` },
 	]
 	return (
-		<Card>
+		<Card aria-busy={placeholder} className={cn(placeholder && "animate-pulse")}>
 			<CardHeader className="pb-4 px-2 sm:px-6 max-sm:pt-5 max-sm:pb-1">
 				<div className="px-2 sm:px-1">
 					<CardTitle className="flex items-center gap-2">
