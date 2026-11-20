@@ -54,7 +54,6 @@ import { $containerSystems } from "@/lib/containers-filter-store"
 const syntaxTheme = "github-dark-dimmed"
 
 export default function ContainersTable({ systemId }: { systemId?: string }) {
-	const loadTime = Date.now()
 	const [data, setData] = useState<ContainerRecord[] | undefined>(undefined)
 	const [sorting, setSorting] = useBrowserStorage<SortingState>(
 		`sort-c-${systemId ? 1 : 0}`,
@@ -84,11 +83,13 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 
 	useEffect(() => {
 		function fetchData(systemId?: string) {
-			pb.collection<ContainerRecord>("containers")
+			return pb
+				.collection<ContainerRecord>("containers")
 				.getList(0, 2000, {
 					fields:
 						"id,name,image,updatable,ports,cpu,memory,net,health,status,system,updated,pid,gpuPid,gpuMemMiB,gpuMemPercent,gpuUtilPercent",
 					filter: systemId ? pb.filter("system={:system}", { system: systemId }) : undefined,
+					requestKey: `containers-${systemId ?? "all"}`,
 				})
 				.then(({ items }) => {
 					if (items.length === 0) {
@@ -118,17 +119,21 @@ export default function ContainersTable({ systemId }: { systemId?: string }) {
 						return newItems
 					})
 				})
+				.catch((e) => {
+					if (!e?.isAbort) console.error(e)
+				})
 		}
 
 		// initial load
-		fetchData(systemId)
+		const initialLoad = fetchData(systemId)
 
 		// if no systemId, pull system containers after every system update
 		if (!systemId) {
-			return $allSystemsById.listen((_value, _oldValue, systemId) => {
-				// exclude initial load of systems
-				if (Date.now() - loadTime > 500) {
-					fetchData(systemId)
+			return $allSystemsById.listen((_value, oldValue, systemId) => {
+				// skip newly added systems (initial population of the store)
+				if (oldValue[systemId]) {
+					// wait for initial load so its older snapshot can't overwrite newer data
+					initialLoad.then(() => fetchData(systemId))
 				}
 			})
 		}
