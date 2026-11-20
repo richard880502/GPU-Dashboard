@@ -2,29 +2,27 @@ import { useLingui } from "@lingui/react/macro"
 import { memo, Suspense, useEffect, useMemo } from "react"
 import SystemsTable from "@/components/systems-table/systems-table"
 import { GpuClusterOverview } from "@/components/gpu-cluster-overview"
-import { GpuStatusTable } from "@/components/gpu-status-table"
+import { GpuStatusTable, useGpuRows } from "@/components/gpu-status-table"
 import { FooterRepoLink } from "@/components/footer-repo-link"
 
 export default memo(() => {
 	const { t } = useLingui()
+	const gpuRows = useGpuRows()
 
 	useEffect(() => {
 		document.title = `${t`All Systems`} / Beszel`
 	}, [t])
 
-	return useMemo(
-		() => (
+	return (
 			<>
 				<div className="flex flex-col gap-4">
-					<GpuClusterOverview />
-					<GpuStatusTable />
+					<GpuClusterOverview rows={gpuRows} />
+					<GpuStatusTable rows={gpuRows} />
 					<Suspense>
 						<SystemsTable />
 					</Suspense>
 				</div>
 				<FooterRepoLink />
 			</>
-		),
-		[]
-	)
+		)
 })
