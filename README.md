@@ -1001,3 +1001,45 @@ The earlier Prometheus + Grafana stack has been retired. Detailed implementation
 - Hub database backup is not automated yet.
 - AlertManager-style notification routing is not included.
 - Triton and vLLM application-level metrics are not included yet.
+
+## Services Analytics (CPU / GPU monthly usage)
+
+The Hub fork includes a Services Analytics page at `/services-analytics` (sign in first).
+It reports **CPU core-hours**, **GPU utilization-equivalent hours**,
+**GPU-active clock-hours**, and **VRAM GiB-hours** by service, month and
+monitored host. GPU-active clock-hours count an hour as one if that service
+had any observed GPU process, GPU utilization, or VRAM occupancy in the hour.
+A service observed in both 10:00–11:00 and 11:00–12:00 counts two distinct
+active hours, regardless of the number of samples in each hour. Unlike Beszel's regular
+30-day `container_stats` history, the daily `service_usage_daily` totals
+are retained indefinitely.
+
+- Build the **Hub**, not every monitored Agent, after checking out the
+  `feature/service-resource-usage-history` branch.
+- Back up the Hub's persistent `/beszel_data` before upgrading because the
+  first start applies new PocketBase migrations.
+- New statistics begin after the first successful pair of polls; earlier lost
+  GPU process history is not reconstructed.
+- To group multiple container replicas under one service, put this entry
+  in the Hub Compose environment file:
+
+  ```dotenv
+  SERVICE_USAGE_GROUPS='{"vllm":["vllm-*"],"whisperx":["whisperx-*","asr-*"]}'
+  ```
+
+  The `deploy/standalone/beszel-hub-compose.yml` passes the setting through
+  to the Hub. Restart the Hub after changing it. Without a mapping, each
+  container name is reported as an independent service.
+- The dashboard reports the *measured* CPU/GPU durations beside each service.
+  A period without sufficient telemetry is unknown, not zero.
+- GPU utilization-equivalent hours are **not** GPU reservation/billing hours.
+- GPU-active clock-hours are **presence buckets** (rounded per hour), not actual
+  seconds used or billed allocation. If a service uses GPU for only a minute
+  within an hour, that hour still counts once; multiple replicas in the
+  same hour count once per logical service in the all-hosts dashboard.
+- The new hourly occupancy collection starts counting after deployment and
+  does not infer past hourly occupancy from earlier daily totals.
+
+See [the implementation and metric definition](docs/service-usage-history.md)
+for build commands, calculation caveats and the migration plan.
+

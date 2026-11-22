@@ -927,3 +927,37 @@ func TestAverageSystemStatsSlice_GPUFanAndPowerLimit(t *testing.T) {
 	assert.Nil(t, result.GPUData["none"].FanSpeed)
 	assert.Nil(t, result.GPUData["none"].PowerLimit)
 }
+
+
+func TestAverageContainerStatsSlice_PreservesGPUHistoryAcrossTiers(t *testing.T) {
+	input := [][]container.Stats{
+		{{Name: "vllm", Cpu: 20, GpuMemMiB: 4000, GpuMemPercent: 25, GpuUtilPercent: 40, GpuIndex: "0"}},
+		{{Name: "vllm", Cpu: 60, GpuMemMiB: 8000, GpuMemPercent: 50, GpuUtilPercent: 80, GpuIndex: "1,0"}},
+	}
+	first := records.AverageContainerStatsSlice(input)
+	require.Len(t, first, 1)
+	assert.Equal(t, 40.0, first[0].Cpu)
+	assert.Equal(t, 6000.0, first[0].GpuMemMiB)
+	assert.Equal(t, 37.5, first[0].GpuMemPercent)
+	assert.Equal(t, 60.0, first[0].GpuUtilPercent)
+	assert.Equal(t, "0,1", first[0].GpuIndex)
+
+	// Values must survive a second rollup instead of reverting to zero.
+	second := records.AverageContainerStatsSlice([][]container.Stats{first, first})
+	require.Len(t, second, 1)
+	assert.Equal(t, 6000.0, second[0].GpuMemMiB)
+	assert.Equal(t, 60.0, second[0].GpuUtilPercent)
+	assert.Equal(t, "0,1", second[0].GpuIndex)
+}
+
+func TestAverageContainerStatsSlice_MissingContainerCountsAsZero(t *testing.T) {
+	result := records.AverageContainerStatsSlice([][]container.Stats{
+		{{Name: "asr", Cpu: 80, GpuMemMiB: 4096, GpuUtilPercent: 100, GpuIndex: "0"}},
+		{},
+	})
+	require.Len(t, result, 1)
+	assert.Equal(t, 40.0, result[0].Cpu)
+	assert.Equal(t, 2048.0, result[0].GpuMemMiB)
+	assert.Equal(t, 50.0, result[0].GpuUtilPercent)
+	assert.Equal(t, "0", result[0].GpuIndex)
+}

@@ -2,6 +2,7 @@ import { Trans } from "@lingui/react/macro"
 import { getPagePath } from "@nanostores/router"
 import {
 	ContainerIcon,
+	ChartNoAxesCombinedIcon,
 	DatabaseBackupIcon,
 	HardDriveIcon,
 	LogOutIcon,
@@ -103,7 +104,14 @@ export default function Navbar() {
 								<ContainerIcon className="h-4 w-4 me-2.5" strokeWidth={1.5} />
 								<Trans>All Containers</Trans>
 							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => navigate(getPagePath($router, "smart"))} className="flex items-center">
+							<DropdownMenuItem
+								onClick={() => navigate(getPagePath($router, "services_analytics"))}
+								className="flex items-center"
+							>
+								<ChartNoAxesCombinedIcon className="h-4 w-4 me-2.5" strokeWidth={1.5} />
+								<span>Services Analytics</span>
+							</DropdownMenuItem>
+						<DropdownMenuItem onClick={() => navigate(getPagePath($router, "smart"))} className="flex items-center">
 								<HardDriveIcon className="h-4 w-4 me-2.5" strokeWidth={1.5} />
 								<span>S.M.A.R.T.</span>
 							</DropdownMenuItem>
@@ -181,6 +189,19 @@ export default function Navbar() {
 					</TooltipContent>
 				</Tooltip>
 				<Tooltip>
+				<TooltipTrigger asChild>
+					<Link
+						href={getPagePath($router, "services_analytics")}
+						className={cn(buttonVariants({ variant: "ghost", size: "icon" }))}
+						aria-label="Services Analytics"
+						onMouseEnter={() => import("@/components/routes/services-analytics")}
+					>
+						<ChartNoAxesCombinedIcon className="h-[1.2rem] w-[1.2rem]" strokeWidth={1.5} />
+					</Link>
+				</TooltipTrigger>
+				<TooltipContent>Services Analytics</TooltipContent>
+			</Tooltip>
+			<Tooltip>
 					<TooltipTrigger asChild>
 						<Link
 							href={getPagePath($router, "smart")}
